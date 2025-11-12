@@ -3,6 +3,7 @@
 #include <vector>
 #include <unordered_map>
 
+//Possibly have a vector of Tokenized objects?
 class Tokenizor {
 private:
 	std::string fpath {};
