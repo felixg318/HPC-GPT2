@@ -8,11 +8,12 @@ int main(int argc, char** argv) {
 		std::cout << "Bad args" << '\n';
 		return -1;	
 	}
-	
+
 	tokenizor.set_file(argv[1]);
 	tokenizor.extract_chars();
 
-	tokenizor.print_set();
+	tokenizor.encode();
+	tokenizor.decode();
 
 	return 0;
 }
