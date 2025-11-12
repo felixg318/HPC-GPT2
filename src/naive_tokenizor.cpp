@@ -2,49 +2,73 @@
 #include <fstream>
 #include <iostream>
 #include <utility>
+#include <cctype>
 
 Tokenizor::Tokenizor(){}
 Tokenizor::~Tokenizor(){}
 
-void Tokenizor::extract_chars() {
+void Tokenizor::extract_tokens() {
+	bool debug {true};
+
         std::ifstream infile(this->fpath, std::ios::in);
-        char ch; 
-        int id {0};
+	std::string buf {""}; 
 
         if (!infile.is_open()) {
                 std::cout << "Failed to open file" << '\n';
                 return;
         }
-        while (infile.get(ch)) {
-                auto insert_retval = this->chs.insert(ch);
-                if (std::get<1>(insert_retval))
-                        this->vocab_size++;
-        }   
+	std::string file_contents { std::istreambuf_iterator<char>(infile), std::istreambuf_iterator<char>() };
         infile.close();
 
-        for (auto it = this->chs.begin(); it != this->chs.end(); ++it) {
-                tokens[*it] = id; 
-                ids[id++] = *it;
-        }   
+	std::ofstream myfile;
+	myfile.open("debug.txt");
 
+	std::cout<< file_contents.size() << '\n';	
+	
+	for (int i = 0; i < file_contents.size(); ++i) {
+		char ch = file_contents[i];
+		if (isalpha(ch))
+			buf += ch;
+		else if (isdigit(ch))
+			buf += ch;
+		else if (ispunct(ch) || iscntrl(ch) || isblank(ch)) {
+			this->token_list.push_back(buf);
+			if (debug)
+				myfile << buf;
+
+			std::string tmp (1, ch);
+//			token_list.push_back(std::string(1, ch));
+			this->token_list.push_back(tmp);
+			if (debug)
+				myfile << tmp;
+			buf.clear();
+		}
+	}
+
+	std::cout << token_list.size() << '\n';
+	
+	myfile.close();
 }
 
 void Tokenizor::encode() {
-        std::ifstream infile(this->fpath, std::ios::in);
-        char ch;
+	int id = 0;
+        for (int i = 0; i < this->token_list.size(); ++i) { 
+		if (auto search = this->tokens.find(this->token_list[i]); search != this->tokens.end()) {
+			this->data.push_back(search->second);
+		}
+		else {
+			this->tokens[token_list[i]] = id;
+			ids[id] = token_list[i];
+			this->vocab_size++; 
+			
+			this->data.push_back(id++);
+		}	
+	}
 
-        if (!infile.is_open()) {
-                std::cout << "Failed to open file" << '\n';
-                return;
-        }   
-        while (infile.get(ch)) {
-                if (auto search = this->tokens.find(ch); search != this->tokens.end())
-                        this->data.push_back(search->second);   
-                else
-                        std::cout << "Token not found\n";           
-        }   
-
-        infile.close();
+	//free memory early
+	this->token_list.clear();
+	this->token_list.shrink_to_fit();
+ 		 
 }
 
 void Tokenizor::decode() {
@@ -53,8 +77,8 @@ void Tokenizor::decode() {
     
         for (int i = 0; i < this->data.size(); ++i) {
                 if (auto search = this->ids.find(this->data[i]); search != this->ids.end()) {
-                        char c = search->second; //can be remove if not used in the future
-                        myfile << c;
+			std::string str = search->second; //can be remove if not used in the future
+                        myfile << str;
                 }
         }
 
@@ -62,11 +86,3 @@ void Tokenizor::decode() {
 }
 
 void Tokenizor::set_file(std::string fpath) { this->fpath = fpath;}
-void Tokenizor::print_set() {
-        std::cout << "Set elements:" << '\n';
-        std::cout << "{\n";
-        for (const auto& elm : this->chs)
-                std::cout << elm << ' ';
-        std::cout << "\n}\n";
-        std::cout << "Vocab size: " << this->vocab_size <<'\n';
-}
