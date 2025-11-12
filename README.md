@@ -1,3 +1,6 @@
-# Gutenber Project (Library of free eBooks)
-Use these for tokens
-https://www.gutenberg.org/ebooks/84
+Find a genre of text we want to train on to simplify our model - \
+For example - FinanceLLM, CodeLLM, AnimeLLM, etc.
+
+# TODO:
+* Create a Makefile
+* Fully working tokenizor for the next phase
