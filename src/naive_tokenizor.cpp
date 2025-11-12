@@ -9,8 +9,8 @@ Tokenizor::~Tokenizor(){}
 
 void Tokenizor::extract_tokens() {
 	bool debug {true};
-
-        std::ifstream infile(this->fpath, std::ios::in);
+	
+	std::ifstream infile(this->fpath, std::ios::in);
 	std::string buf {""}; 
 
         if (!infile.is_open()) {
@@ -53,7 +53,7 @@ void Tokenizor::extract_tokens() {
 void Tokenizor::encode() {
 	int id = 0;
         for (int i = 0; i < this->token_list.size(); ++i) { 
-		if (auto search = this->tokens.find(this->token_list[i]); search != this->tokens.end()) {
+		if (auto search = this->tokens.find(this->token_list[i]); search != this->tokens.end()) { 
 			this->data.push_back(search->second);
 		}
 		else {
