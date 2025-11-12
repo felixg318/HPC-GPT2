@@ -52,7 +52,7 @@ void Tokenizor::extract_tokens() {
 
 void Tokenizor::encode() {
 	int id = 0;
-        for (int i = 0; i < this->token_list.size(); ++i) { 
+	for (int i = 0; i < this->token_list.size(); ++i) { 
 		if (auto search = this->tokens.find(this->token_list[i]); search != this->tokens.end()) { 
 			this->data.push_back(search->second);
 		}
