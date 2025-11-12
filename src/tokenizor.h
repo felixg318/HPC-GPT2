@@ -1,11 +1,16 @@
 #include <string>
-#include <unordered_set>
+#include <set>
 #include <vector>
+#include <unordered_map>
 
 class Tokenizor {
 private:
 	std::string fpath {};
-	std::unordered_set<char> chs {};
+	std::set<char> chs {};
+	
+	std::unordered_map<char, int> tokens;
+	std::unordered_map<int, char> ids;
+	
 	int vocab_size {0};
 	std::vector<int> data {};
 
