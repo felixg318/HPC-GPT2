@@ -10,16 +10,16 @@ float random_float(float min, float max) {
 	return min + ((float)rand() / (float)RAND_MAX) * (max - min);
 }
 
-void create_embedding_layer(float *weights, int size) {
+void create_embeddings(float *pos_data, int size, float min, float max) {
 	for (int i = 0; i < size; ++i) 
-		weights[i] = random_float(-5.0, 5.0);
+		pos_data[i] = random_float(min, max);
 }
 
-void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int batch_size, int &batch_idx) {
+void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int batch_size, int *batch_idx) {
 	for (int i = 0; i < batch_size; ++i) {
-		in_batch[i] = (batch_idx < src_size) ? src[i] : 0;
-		target_batch[i] = (batch_idx < src_size) ? src[i + STRIDE] : 0;
-		batch_idx++;
+		in_batch[i] = (*batch_idx < src_size) ? src[i] : 0;
+		target_batch[i] = (*batch_idx < src_size) ? src[i + STRIDE] : 0;
+		(*batch_idx)++;
 	}
 }
 
