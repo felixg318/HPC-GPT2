@@ -6,8 +6,8 @@ const int SEQ_LENGTH = 128;
 
 void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int batch_size, int &batch_idx) {
 	for (int i = 0; i < batch_size; ++i) {
-	        in_batch[i] = (batch_idx < src_size) ? src[i] : 0;
-        	target_batch[i] = (batch_idx < src_size) ? src[i + STRIDE] : 0;
+		in_batch[i] = (batch_idx < src_size) ? src[i] : 0;
+		target_batch[i] = (batch_idx < src_size) ? src[i + STRIDE] : 0;
 		batch_idx++;
 	}
 }
