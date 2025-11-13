@@ -1,30 +1,30 @@
 #include <string>
-#include <set>
 #include <vector>
 #include <unordered_map>
 
+//Possibly have a vector of Tokenized objects?
 class Tokenizor {
 private:
 	std::string fpath {};
-	std::set<char> chs {};
 	
-	std::unordered_map<char, int> tokens;
-	std::unordered_map<int, char> ids;
+	std::unordered_map<std::string, int> tokens;
+	std::unordered_map<int, std::string> ids;
 	
 	int vocab_size {0};
-	std::vector<int> data {};
 
+	std::vector<int> data {};
+	std::vector<std::string> token_list;
 
 public:
 	Tokenizor();
 	~Tokenizor();
 
-	void extract_chars();
+	void extract_tokens();
+	
 	void encode();
 	void decode();
 
-	void set_file(std::string fpath);
+	void set_file(std::string);
 	
-	void print_set();
 	void print_data();
 };
