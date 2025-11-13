@@ -1,4 +1,4 @@
-#include "tokenizor.h"
+#include "tokenizor.hpp"
 #include <fstream>
 #include <iostream>
 #include <utility>
@@ -71,7 +71,7 @@ void Tokenizor::encode() {
  		 
 }
 
-void Tokenizor::decode() {
+void Tokenizor::decode() { //TODO SEND STREAM OF TOKENS TO DECODE
         std::ofstream myfile;
         myfile.open("out.txt");
     
