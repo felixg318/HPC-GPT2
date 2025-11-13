@@ -26,5 +26,4 @@ public:
 	
 	void print_data();
 
-
 };
