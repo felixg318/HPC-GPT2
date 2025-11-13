@@ -2,9 +2,8 @@
 #include <vector>
 #include <unordered_map>
 
-//Possibly have a vector of Tokenized objects?
 class Tokenizor {
-private:
+public:
 	std::string fpath {};
 	
 	std::unordered_map<std::string, int> tokens;
@@ -15,7 +14,6 @@ private:
 	std::vector<int> data {};
 	std::vector<std::string> token_list;
 
-public:
 	Tokenizor();
 	~Tokenizor();
 
@@ -27,4 +25,6 @@ public:
 	void set_file(std::string);
 	
 	void print_data();
+
+
 };

@@ -23,7 +23,7 @@ void Tokenizor::extract_tokens() {
 	std::ofstream myfile;
 	myfile.open("debug.txt");
 
-	std::cout<< file_contents.size() << '\n';	
+	std::cout<< file_contents.size() << " characters in document" << '\n';	
 	
 	for (int i = 0; i < file_contents.size(); ++i) {
 		char ch = file_contents[i];
@@ -45,7 +45,7 @@ void Tokenizor::extract_tokens() {
 		}
 	}
 
-	std::cout << token_list.size() << '\n';
+	std::cout << "Tokenized " << token_list.size() << " words" << '\n';
 	
 	myfile.close();
 }
@@ -64,7 +64,7 @@ void Tokenizor::encode() {
 			this->data.push_back(id++);
 		}	
 	}
-
+	std::cout << "Vocabulary size " << vocab_size << '\n';
 	//free memory early
 	this->token_list.clear();
 	this->token_list.shrink_to_fit();
@@ -86,3 +86,8 @@ void Tokenizor::decode() {
 }
 
 void Tokenizor::set_file(std::string fpath) { this->fpath = fpath;}
+
+void Tokenizor::print_data() {
+	for (int i = 0; i < this->data.size(); ++i)
+		std::cout << this->data[i] << ' ';
+}
