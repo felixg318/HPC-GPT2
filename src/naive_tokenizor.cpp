@@ -50,18 +50,40 @@ void Tokenizor::extract_tokens() {
 	myfile.close();
 }
 
+int Tokenizor::add_token(std::string token) {
+	auto search = this->tokens.find(token);
+	if (search == this->tokens.end()) { 
+		int id = ++this->vocab_size;
+		this->tokens[token] = id;
+		this->ids[id] = token;
+	}
+	return this->vocab_size;
+}
+
+void Tokenizor::pad_data(int new_size) {
+	int diff = new_size - this->data.size();
+	int id = this->add_token("[PAD]");
+	std::cout << "Before padding:  " << this->data.size() << "\n";
+	
+	for (int i = 0; i < diff; ++i) 
+		this->data.push_back(id);	
+
+	std::cout << "After padding:  " << this->data.size() << "\n";
+	std::cout << "New vocab size: " << this->vocab_size << "\n";
+
+	this->pad_id = id;
+}
+
 void Tokenizor::encode() {
-	int id = 0;
 	for (int i = 0; i < this->token_list.size(); ++i) { 
 		if (auto search = this->tokens.find(this->token_list[i]); search != this->tokens.end()) { 
 			this->data.push_back(search->second);
 		}
 		else {
-			this->tokens[token_list[i]] = id;
-			ids[id] = token_list[i];
-			this->vocab_size++; 
+			this->tokens[token_list[i]] = this->vocab_size;
+			ids[this->vocab_size] = token_list[i];
 			
-			this->data.push_back(id++);
+			this->data.push_back(this->vocab_size++);
 		}	
 	}
 	std::cout << "Vocabulary size " << vocab_size << '\n';
@@ -71,12 +93,12 @@ void Tokenizor::encode() {
  		 
 }
 
-void Tokenizor::decode() { //TODO SEND STREAM OF TOKENS TO DECODE
+void Tokenizor::decode(int *a, int size) { 
         std::ofstream myfile;
         myfile.open("out.txt");
     
-        for (int i = 0; i < this->data.size(); ++i) {
-                if (auto search = this->ids.find(this->data[i]); search != this->ids.end()) {
+        for (int i = 0; i < size; ++i) {
+                if (auto search = this->ids.find(a[i]); search != this->ids.end()) {
 			std::string str = search->second; //can be remove if not used in the future
                         myfile << str;
                 }
@@ -86,7 +108,7 @@ void Tokenizor::decode() { //TODO SEND STREAM OF TOKENS TO DECODE
 }
 
 void Tokenizor::set_file(std::string fpath) { this->fpath = fpath;}
-
+int Tokenizor::get_pad_id() { return this->pad_id;}
 void Tokenizor::print_data() {
 	for (int i = 0; i < this->data.size(); ++i)
 		std::cout << this->data[i] << ' ';

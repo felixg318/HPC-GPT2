@@ -15,11 +15,19 @@ void create_embeddings(float *pos_data, int size, float min, float max) {
 		pos_data[i] = random_float(min, max);
 }
 
-void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int batch_size, int *batch_idx) {
-	for (int i = 0; i < batch_size; ++i) {
-		in_batch[i] = (*batch_idx < src_size) ? src[i] : 0;
-		target_batch[i] = (*batch_idx < src_size) ? src[i + STRIDE] : 0;
-		(*batch_idx)++;
+void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int batches, int pad_id) {
+	int batch_size = BATCH_SIZE * SEQ_LENGTH;
+
+	for (int b = 0; b < batches; ++b) {
+		for (int i = 0; i < BATCH_SIZE; ++i) {
+			for (int j = 0; j < SEQ_LENGTH; ++j) {
+				int idx = b * batch_size + i * SEQ_LENGTH + j;
+
+				in_batch[idx] = (idx < src_size) ? src[idx] : pad_id;
+				target_batch[idx] = (idx + STRIDE < src_size) ? src[idx + STRIDE] : pad_id;
+				
+			}
+		}
 	}
 }
 
@@ -34,10 +42,12 @@ void embed_tokens(int *input, float *weights, float *out, int input_size, int vo
 void print_array(int *a, int size) {
 	for (int i = 0; i < size; ++i)
 		printf("%d ", a[i]);
+	printf("\n");
 }
 void print_farray(float *a, int size) {
 	for (int i = 0; i < size; ++i)
 		printf("%f ", a[i]);
+	printf("\n");
 }
 
 void save_embedded_vectors(float *arr, int x, int y) {
