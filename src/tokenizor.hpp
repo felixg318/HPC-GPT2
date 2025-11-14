@@ -3,6 +3,9 @@
 #include <unordered_map>
 
 class Tokenizor {
+private:
+	int pad_id;
+
 public:
 	std::string fpath {};
 	
@@ -18,9 +21,13 @@ public:
 	~Tokenizor();
 
 	void extract_tokens();
+	void pad_data(int new_size);
+	int get_pad_id();
 	
 	void encode();
-	void decode();
+	void decode(int*, int);
+
+	int add_token(std::string);
 
 	void set_file(std::string);
 	
