@@ -15,7 +15,6 @@ void create_embeddings(float *pos_data, int size, float min, float max) {
 		pos_data[i] = random_float(min, max);
 }
 
-//IMPORTANT CHANGE 0 to a Padding token
 void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int batches, int pad_id) {
 	int batch_size = BATCH_SIZE * SEQ_LENGTH;
 
