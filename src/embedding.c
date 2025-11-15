@@ -15,10 +15,10 @@ void create_embedding(float *weights, int size, float min, float max) {
 		weights[i] = random_float(min, max);
 }
 
-void create_batches(int *src, int *in_batch, int *target_batch, int src_size, int pad_id) {
-	for (int i = 0; i < BATCH_SEQ; ++i) {
-		for (int j = 0; j < SEQ_LENGTH; ++j) {
-			int idx = i * SEQ_LENGTH + j;
+void create_batches(int *src, int *in_batch, int *target_batch, int batch_seq, int seq_len, int stride, int src_size, int pad_id) {
+	for (int i = 0; i < batch_seq; ++i) {
+		for (int j = 0; j < seq_len; ++j) {
+			int idx = i * seq_len + j;
 
 			in_batch[idx] = (idx < src_size) ? src[idx] : pad_id;
 			target_batch[idx] = (idx + STRIDE < src_size) ? src[idx + STRIDE] : pad_id;
@@ -33,11 +33,12 @@ void embed_tokens(int *input, float *weights, float *out, int input_size, int em
 			out[token * embedding_dim + j] = weights[input[token] * embedding_dim + j];
 }
 
-//tokens acts like a lookup for pos_data
-void inplace_add_positional(float *embedding, int *tokens, float *pos_data, int batch_size, int embedding_dim) {
+void inplace_add_positional(float *embedding, float *pos_weights, int batch_size, int seq_len, int embedding_dim) {
 	for (int i = 0; i < batch_size; ++i) 
-		for (int j = 0; j < embedding_dim; ++j) 
-			embedding[i * embedding_dim + j] += pos_data[tokens[i] * embedding_dim + j];
+		for (int j = 0; j < embedding_dim; ++j) {
+			int pos = i % seq_len;
+			embedding[i * embedding_dim + j] += pos_weights[pos * embedding_dim + j];
+		}
 }
 
 void print_array(int *a, int size) {
