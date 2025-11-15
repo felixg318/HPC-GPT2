@@ -35,8 +35,8 @@ void embed_tokens(int *input, float *weights, float *out, int input_size, int em
 
 void inplace_add_positional(float *embedding, float *pos_weights, int batch_size, int seq_len, int embedding_dim) {
 	for (int i = 0; i < batch_size; ++i) 
+		int pos = i % seq_len;
 		for (int j = 0; j < embedding_dim; ++j) {
-			int pos = i % seq_len;
 			embedding[i * embedding_dim + j] += pos_weights[pos * embedding_dim + j];
 		}
 }
