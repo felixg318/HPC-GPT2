@@ -13,4 +13,3 @@ void simple_soft_attention(float *embedding, int batch_seq, int seq_length, int 
 			}
 		}
        	}
-}
