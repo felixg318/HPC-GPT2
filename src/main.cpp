@@ -6,14 +6,17 @@ const int BATCH_SEQ = 32;
 const int SEQ_LENGTH = 128;
 const int EMBEDDING_DIM = 64;
 
-void create_batches(int *src, int *in_batch, int *target_batch, int batch_seq, int seq_len, int stride, int data_size, int pad_id);
-void create_embedding (float *weights, int size, float min, float max); 
-void embed_tokens (int *input, float *weights, float *out, int batch_size, int embedding_dim);
-void inplace_add_positional(float *embedding, float *pos_weights, int batch_size, int seq_len, int embedding_dim);
-void mat_inplace_add (float *A, float *B, int rows, int cols);
-void print_array (int *a, int size);
-void print_farray (float *a, int size);
-void save_embedded_vectors (float *arr, int x, int y);
+extern "C" {
+	void create_batches(int *src, int *in_batch, int *target_batch, int batch_seq, int seq_len, int stride, int data_size, int pad_id);
+	void create_embedding (float *weights, int size, float min, float max); 
+	void embed_tokens (int *input, float *weights, float *out, int batch_size, int embedding_dim);
+	void inplace_add_positional(float *embedding, float *pos_weights, int batch_size, int seq_len, int embedding_dim);
+	void mat_inplace_add (float *A, float *B, int rows, int cols);
+	void print_array (int *a, int size);
+	void print_farray (float *a, int size);
+	void save_embedded_vectors (float *arr, int x, int y);
+	void simple_soft_attention(float *embedding, int batch_seq, int seq_length, int embedding_dim);
+}
 
 int main(int argc, char** argv) {
 	Tokenizor tokenizor;
@@ -23,7 +26,7 @@ int main(int argc, char** argv) {
 	int embedding_dim = EMBEDDING_DIM;
 	int batches; 
 	int vocab_size, data_size, pos_weights_size, token_weights_size;
-	int pad_id; 
+	int pad_id {}; 
 	
 	if (argc < 2 || argc > 2) {
 		std::cout << "Bad args" << '\n';
@@ -37,7 +40,7 @@ int main(int argc, char** argv) {
 	data_size = tokenizor.data.size();
 	batches = data_size / batch_size + 1;
 	
-	if (tokenizor.data.size() != batches * batch_size) {
+	if (static_cast<int>(tokenizor.data.size()) != batches * batch_size) {
 		std::cout << "Need to pad input text\n";
 		tokenizor.pad_data(batches * batch_size);
 		
@@ -75,12 +78,13 @@ int main(int argc, char** argv) {
 		embed_tokens(input_batch + batch_offset, token_weights, embedding_batch + embedding_offset, batch_size, embedding_dim);
 		inplace_add_positional(embedding_batch + embedding_offset, pos_weights, batch_size, SEQ_LENGTH, embedding_dim);
 
-	
+		simple_soft_attention(embedding_batch + embedding_offset, BATCH_SEQ, SEQ_LENGTH, embedding_dim);	
+			
 	}
 
 
 //	For use later:
-	save_embedded_vectors(embedding_batch, embedding_dim, batches * batch_size);
+//	save_embedded_vectors(embedding_batch, embedding_dim, batches * batch_size);
 //	tokenizor.decode(array, size);
 
 	delete[] input_batch;

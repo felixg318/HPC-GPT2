@@ -21,7 +21,7 @@ void create_batches(int *src, int *in_batch, int *target_batch, int batch_seq, i
 			int idx = i * seq_len + j;
 
 			in_batch[idx] = (idx < src_size) ? src[idx] : pad_id;
-			target_batch[idx] = (idx + STRIDE < src_size) ? src[idx + STRIDE] : pad_id;
+			target_batch[idx] = (idx + STRIDE < src_size) ? src[idx + stride] : pad_id;
 		}
 	}
 }

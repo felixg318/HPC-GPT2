@@ -25,7 +25,7 @@ void Tokenizor::extract_tokens() {
 
 	std::cout<< file_contents.size() << " characters in document" << '\n';	
 	
-	for (int i = 0; i < file_contents.size(); ++i) {
+	for (size_t i = 0; i < file_contents.size(); ++i) {
 		char ch = file_contents[i];
 		if (isalpha(ch))
 			buf += ch;
@@ -75,8 +75,9 @@ void Tokenizor::pad_data(int new_size) {
 }
 
 void Tokenizor::encode() {
-	for (int i = 0; i < this->token_list.size(); ++i) { 
-		if (auto search = this->tokens.find(this->token_list[i]); search != this->tokens.end()) { 
+	for (size_t i = 0; i < this->token_list.size(); ++i) {
+		auto search = this->tokens.find(this->token_list[i]);
+		if (search != this->tokens.end()) { 
 			this->data.push_back(search->second);
 		}
 		else {
@@ -98,7 +99,8 @@ void Tokenizor::decode(int *a, int size) {
         myfile.open("out.txt");
     
         for (int i = 0; i < size; ++i) {
-                if (auto search = this->ids.find(a[i]); search != this->ids.end()) {
+		auto search = this->ids.find(a[i]);
+                if (search != this->ids.end()) {
 			std::string str = search->second; //can be remove if not used in the future
                         myfile << str;
                 }
@@ -110,6 +112,6 @@ void Tokenizor::decode(int *a, int size) {
 void Tokenizor::set_file(std::string fpath) { this->fpath = fpath;}
 int Tokenizor::get_pad_id() { return this->pad_id;}
 void Tokenizor::print_data() {
-	for (int i = 0; i < this->data.size(); ++i)
+	for (size_t i = 0; i < this->data.size(); ++i)
 		std::cout << this->data[i] << ' ';
 }
