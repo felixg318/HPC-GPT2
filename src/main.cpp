@@ -78,8 +78,6 @@ int main(int argc, char** argv) {
 		embed_tokens(input_batch + batch_offset, token_weights, embedding_batch + embedding_offset, batch_size, embedding_dim);
 		inplace_add_positional(embedding_batch + embedding_offset, pos_weights, batch_size, SEQ_LENGTH, embedding_dim);
 
-		simple_soft_attention(embedding_batch + embedding_offset, BATCH_SEQ, SEQ_LENGTH, embedding_dim);	
-			
 	}
 
 
