@@ -17,6 +17,7 @@ void create_embedding(float *w, int size, float min, float max);
  * context vector is a parameter
  *
  * might have to make self_attention into a struct
+ * or large segment of memory to hold b batches of self_attention objects
  *
  * change this when finished
  *
@@ -54,11 +55,9 @@ void self_attention_v1(float *embedding, int batch_seq, int seq_len, int embeddi
 	//depends on what values should be analyzed	
 	attention_scores = 	(float*)malloc(seq_len * seq_len  * sizeof(float)); 
 	attention_weights = 	(float*)malloc(seq_len * seq_len  * sizeof(float)); 
-	weighted_sums = 	(float*)malloc(seq_len * embedding_dim  * sizeof(float)); 
+	context_vector = 	(float*)malloc(seq_len * embedding_dim  * sizeof(float)); 
 
 	//project embedding - >Q,K,V
-	//
-	//MIGHT BE WRONG
 	for (int i = 0; i < seq_len; ++i) {
 		for (int k = 0; k < embedding_dim; ++k) {
 			int idx = i * embedding_dim + k;
@@ -118,6 +117,8 @@ void self_attention_v1(float *embedding, int batch_seq, int seq_len, int embeddi
 		//eof softmax
 		
 		//TODO WEIGHTED_SUMS (context vectors) and add
+		
+		
 	}
 }	
 
