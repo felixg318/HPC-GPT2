@@ -1,6 +1,9 @@
 CC := gcc
 CXX := g++
 
+MPIC := mpicc
+MPICXX := mpic++
+
 # Compiler flags
 CFLAGS := -Wall -Wextra -O2 -g -fPIC -I.
 CXXFLAGS := -Wall -Wextra -O2 -g -std=c++11 -fPIC -I.
@@ -18,9 +21,9 @@ OBJECTS := $(C_SOURCES:.c=.o) $(CPP_SOURCES:.cpp=.o)
 
 all: $(TARGET)
 
-# Link object files to create executable
+# Link object files to create executable - USE MPICXX HERE!
 $(TARGET): $(OBJECTS)
-	$(CXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
+	$(MPICXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
 
 # Compile C source files
 %.o: %.c
@@ -28,7 +31,7 @@ $(TARGET): $(OBJECTS)
 
 # Compile C++ source files
 %.o: %.cpp $(HEADERS)
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+	$(MPICXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(OBJECTS) $(TARGET)
