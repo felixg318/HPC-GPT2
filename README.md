@@ -3,5 +3,6 @@ For example - FinanceLLM, CodeLLM, AnimeLLM, etc.
 
 # TODO:
 * Test tokenizor for bugs with text files
-* Coding attention mechanisms
 * Start figuring out where to use CUDA and MPI in code
+* Implement GPT model
+* Decide to code Multihead attention
