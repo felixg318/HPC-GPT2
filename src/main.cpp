@@ -24,7 +24,7 @@ extern "C" {
 	void print_farray (float *a, int size);
 	void save_to_file(float *mat, int dim1, int dim2, int dim3, const char *filename);
 	void save_4d_to_file(float *tensor, int dim1, int dim2, int dim3, int dim4, const char *filename);
-	void self_attention_v1(float *embedding, float *context_vec, float *w_q, float *w_k, float *w_v, int num_seq, int seq_len, int embedding_dim, int in_dim, int out_dim);
+	void self_attention_v1(float *embedding, float *context_vec, float *w_q, float *w_k, float *w_v, int num_seq, int seq_len, int embedding_dim, int in_dim, int out_dim, int is_training);
 }
 
 int main(int argc, char* argv[]) {
@@ -101,6 +101,7 @@ int main(int argc, char* argv[]) {
 	create_embedding(W_K, qkv_size, -0.05, 0.05);
 	create_embedding(W_V, qkv_size, -0.05, 0.05);
 
+	int is_training = 1;
 	//potentially buggy
 	//add bounds checking
 	//to add to gpu, load weights and positional data to memory for cuda kernels
@@ -112,8 +113,10 @@ int main(int argc, char* argv[]) {
 		embed_tokens(input_batch + batch_offset, token_weights, embedding_batch + embedding_offset, batch_size, embedding_dim);
 		inplace_add_positional(embedding_batch + embedding_offset, pos_weights, batch_size, SEQ_LENGTH, embedding_dim);
 		
-		self_attention_v1(embedding_batch + embedding_offset, context_vector + embedding_offset,  W_Q, W_K, W_V, NUM_SEQ, SEQ_LENGTH, embedding_dim, in_dim, out_dim);
+		self_attention_v1(embedding_batch + embedding_offset, context_vector + embedding_offset,  W_Q, W_K, W_V, NUM_SEQ, SEQ_LENGTH, embedding_dim, in_dim, out_dim, is_training);
 	}
+
+	is_training = 0;
 
 //	save_4d_to_file(context_vector, NUM_SEQ, SEQ_LENGTH, embedding_dim, batches, "results.txt");
 	delete[] input_batch;

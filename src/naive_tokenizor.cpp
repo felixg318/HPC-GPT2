@@ -8,7 +8,7 @@ Tokenizor::Tokenizor(){}
 Tokenizor::~Tokenizor(){}
 
 void Tokenizor::extract_tokens() {
-	bool debug {false};
+//	bool debug {false};
 	
 	std::ifstream infile(this->fpath, std::ios::in);
 	std::string buf {""}; 
@@ -20,8 +20,8 @@ void Tokenizor::extract_tokens() {
 	std::string file_contents { std::istreambuf_iterator<char>(infile), std::istreambuf_iterator<char>() };
         infile.close();
 
-	std::ofstream myfile;
-	myfile.open("debug.txt");
+//	std::ofstream myfile;
+//	myfile.open("debug.txt");
 
 	std::cout<< file_contents.size() << " characters in document" << '\n';	
 	
@@ -33,21 +33,21 @@ void Tokenizor::extract_tokens() {
 			buf += ch;
 		else if (ispunct(ch) || iscntrl(ch) || isblank(ch)) {
 			this->token_list.push_back(buf);
-			if (debug)
-				myfile << buf;
+//			if (debug)
+//				myfile << buf;
 
 			std::string tmp (1, ch);
 //			token_list.push_back(std::string(1, ch));
 			this->token_list.push_back(tmp);
-			if (debug)
-				myfile << tmp;
+//			if (debug)
+//				myfile << tmp;
 			buf.clear();
 		}
 	}
 
 	std::cout << "Tokenized " << token_list.size() << " words" << '\n';
 	
-	myfile.close();
+//	myfile.close();
 }
 
 int Tokenizor::add_token(std::string token) {
