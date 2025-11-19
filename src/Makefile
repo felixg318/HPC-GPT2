@@ -10,7 +10,7 @@ LDFLAGS := -lm
 
 TARGET := llm
 
-C_SOURCES := embedding.c serial_ops.c transformer.c
+C_SOURCES := embedding.c attention.c debug.c
 CPP_SOURCES := main.cpp naive_tokenizor.cpp
 HEADERS := tokenizor.hpp
 

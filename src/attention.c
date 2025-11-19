@@ -1,52 +1,36 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
 /*
- *
  *	THIS FILE IS A WORK IN PROGRESS!!!
  *
- *
- * */
-
-
-void save_embedded_vectors (float *arr, int x, int y); //make new c file for print matrices?
-void create_embedding(float *w, int size, float min, float max);
-
-/* 
- * q,k,v weight matrices are parameters
- * context vector is a parameter
- *
- * might have to make self_attention into a struct
- * or large segment of memory to hold b batches of self_attention objects
- *
- * change this when finished
- *
- *
  */
-void self_attention_v1(float *embedding, int batch_seq, int seq_len, int embedding_dim, int in_dim, int out_dim) {
-	float *Q, *K, *V;
-	float *W_Q, *W_K, *W_V;
 
-	float *attention_scores;
-	float *attention_weights;
-	float *weighted_sums;
+void apply_casual_attention_mask_v1(float *scores, int rows, int cols);
+void apply_softmask_v1(float *scores, float *weights, int rows, int cols);
+void save_to_file(float *mat, int dim1, int dim2, int dim3, const char *filename);
+void save_2d_to_file(float *mat, int rows, int cols, const char *filename);
+
+void self_attention_v1(float *embedding,
+			float *context_vec,
+	       		float *W_Q,
+			float *W_V,
+			float *W_K,	
+			int num_seq, 
+			int seq_len, 
+			int embedding_dim, 
+			int in_dim, 
+			int out_dim) {
 	
-	int size = in_dim * out_dim;
-
 	if (embedding_dim != in_dim) {
-		printf("Bad dimensions for self_attention_v1. Embedding dimension does not match in_dim for weight matrices\n");
+		printf("Bad dimensions for self_attention_forward_v1. Embedding dimension does not match in_dim for weight matrices\n");
 		return;
 	}
+	
+	float *Q, *K, *V;
+	float *attention_scores, *attention_weights;
 
-	//to do outside of this function when done
-	W_Q = (float*)malloc(size * sizeof(float));
-	W_K = (float*)malloc(size * sizeof(float));
-	W_V = (float*)malloc(size * sizeof(float));
-	
-	create_embedding(W_Q, size, -0.05, 0.05);
-	create_embedding(W_K, size, -0.05, 0.05);
-	create_embedding(W_V, size, -0.05, 0.05);
-	
 	Q = (float*)malloc(seq_len * embedding_dim * sizeof(float));
 	K = (float*)malloc(seq_len * embedding_dim * sizeof(float));
 	V = (float*)malloc(seq_len * embedding_dim * sizeof(float));
@@ -55,74 +39,99 @@ void self_attention_v1(float *embedding, int batch_seq, int seq_len, int embeddi
 	//depends on what values should be analyzed	
 	attention_scores = 	(float*)malloc(seq_len * seq_len  * sizeof(float)); 
 	attention_weights = 	(float*)malloc(seq_len * seq_len  * sizeof(float)); 
-	context_vector = 	(float*)malloc(seq_len * embedding_dim  * sizeof(float)); 
 
-	//project embedding - >Q,K,V
-	for (int i = 0; i < seq_len; ++i) {
-		for (int k = 0; k < embedding_dim; ++k) {
-			int idx = i * embedding_dim + k;
-			Q[idx] = 0.0f;
-			K[idx] = 0.0f;
-			V[idx] = 0.0f;
-			for (int j = 0; j < embedding_dim; ++j) {
-				int embed_idx = i * embedding_dim + j;
-				int qkv_idx = j * embedding_dim + k;
-				Q[idx] += embedding[embed_idx] * W_Q[qkv_idx];
-				K[idx] += embedding[embed_idx] * W_K[qkv_idx];
-				V[idx] += embedding[embed_idx] * W_V[qkv_idx];
+	for (int s = 0; s < num_seq; ++s) {
+		//project embedding - >Q,K,V
+		for (int i = 0; i < seq_len; ++i) {
+			for (int k = 0; k < out_dim; ++k) {
+				int idx = i * embedding_dim + k;
+				Q[idx] = 0.0f;
+				K[idx] = 0.0f;
+				V[idx] = 0.0f;
+				for (int j = 0; j < embedding_dim; ++j) {
+					//scaled dot prod
+					int embed_idx = s * seq_len * embedding_dim + i * embedding_dim + j;
+					int qkv_idx = j * embedding_dim + k;
+					Q[idx] += embedding[embed_idx] * W_Q[qkv_idx];
+					K[idx] += embedding[embed_idx] * W_K[qkv_idx];
+					V[idx] += embedding[embed_idx] * W_V[qkv_idx];
+				}
+			}
+		}
+		//compute scores: Q * K^T
+		for (int i = 0; i < seq_len; ++i) {
+			for (int j = 0; j < seq_len; ++j) {
+				float dot_prod = 0.0f;
+				for (int k = 0; k < embedding_dim; ++k) 
+					dot_prod += Q[i * embedding_dim + k] * K[j * embedding_dim + k];
+
+				attention_scores[i * seq_len + j] = dot_prod;
+			
+			}
+		}
+
+		apply_casual_attention_mask_v1(attention_scores, seq_len, seq_len);
+		apply_softmask_v1(attention_scores, attention_weights, seq_len, seq_len); 
+		
+		//compute and assign to context_vec
+		//Attn Weights * V
+		for (int i = 0; i < seq_len;  ++i) {
+			for (int d = 0; d < embedding_dim; ++d) {
+				float weighted_sum = 0.0f;
+				for(int j = 0; j < seq_len; ++j) {
+					int w_idx = i * seq_len + j;
+					int v_idx = j * embedding_dim + d;
+
+					weighted_sum += attention_weights[w_idx] * V[v_idx];
+				}
+				context_vec[s * seq_len * embedding_dim + i * embedding_dim + d] = weighted_sum;
+
 			}
 		}
 	}
+	
+	free(Q);
+	free(K);
+	free(V);
+	free(attention_scores);
+	free(attention_weights);
+}	
 
-	//compute scores: Q * K^T
-	for (int i = 0; i < seq_len; ++i) {
-		for (int j = 0; j < seq_len; ++j) {
-			float dot_prod = 0.0f;
-			for (int k = 0; k < embedding_dim; ++k) 
-				dot_prod += Q[i * embedding_dim + k] * K[j * embedding_dim + k];
-
-			attention_scores[i * seq_len + j] = dot_prod;
+void apply_casual_attention_mask_v1(float *scores, int rows, int cols) {
+	for(int i = 0; i < rows; ++i) 
+		for(int j = i + 1; j < cols; ++j) 
+			scores[i * cols + j] = -INFINITY; 
+}
+/* 
+ *  softmax for attention weights
+ *  softmax normalization
+ *  max value is needed for numerical stability to prevent overflow in the exponential function
+ *
+ */
+void apply_softmask_v1(float *scores, float *weights, int rows, int cols) {
+	for (int i = 0; i < rows; ++i) { 	
+		//process by row
+		float max_score = scores[i * cols];
+		for (int j = 1; j < cols; ++j) { 
+			int idx = i * cols + j;
+			if (scores[idx] > max_score) 
+				max_score = scores[idx];
 		}
-		/* 
-		 *  softmax for attention weights
-		 *  softmax normalization
-		 *  max value is needed for numerical stability to prevent overflow in the exponential function
-		 *
-		 *  WORK IN PROGRES
-		 *
-		 *  GOES BY ROW
-		 *
-		 */
-
-		float max_score = attention_scores[i * seq_len];
-		for (int j = 1; j < seq_len; ++j) { 
-			int idx = i * seq_len + j;
-			if (attention_scores[idx] > max_score) 
-			max_score = attention_scores[idx];
-		}
-
 		float score_sum_exp = 0.0f;
-		for (int j = 0; j < seq_len; ++j) {
-			int idx = i * seq_len + j;
-			float tmp = exp(attention_scores[idx] - max_score);
+		for (int j = 0; j < cols; ++j) {
+			int idx = i * cols + j;
+			float tmp = exp(scores[idx] - max_score);
 
-			attention_weights[idx] = tmp;	
+			weights[idx] = tmp;	
 			score_sum_exp += tmp;
 		}
 		
-		for (int j = 0; j < seq_len; ++j) {
-			int idx = i * seq_len + j;
-			attention_weights[idx] /= score_sum_exp;	
+		for (int j = 0; j < cols; ++j) {
+			int idx = i * cols + j;
+			weights[idx] /= score_sum_exp;	
 		}
-		//eof softmax
-		
-		//TODO WEIGHTED_SUMS (context vectors) and add
-		
-		
 	}
-}	
-
-
+}
 /*
  *
  *

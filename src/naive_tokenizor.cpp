@@ -8,7 +8,7 @@ Tokenizor::Tokenizor(){}
 Tokenizor::~Tokenizor(){}
 
 void Tokenizor::extract_tokens() {
-	bool debug {true};
+	bool debug {false};
 	
 	std::ifstream infile(this->fpath, std::ios::in);
 	std::string buf {""}; 
