@@ -39,7 +39,7 @@ static inline void embedding_init(Embedding* emb, int num_embeddings, int embedd
     w_shape[1] = embedding_dim;
     tensor_init(&emb->weight, 2, w_shape);  // (num_embeddings, embedding_dim)
 
-    // For now, you can fill with zeros or some small constant.
+    // For now, we can fill with zeros or some small constant.
     // Later we will load real weights from PyTorch.
     tensor_fill(&emb->weight, 0.0f);
 }
