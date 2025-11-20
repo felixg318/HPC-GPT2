@@ -1,184 +1,164 @@
 // linear.h
-// Simple Linear layer: y = x W^T + b, using Tensor from tensor.h
+// Fully connected layer: y = x W + b
+// Weight layout: (in_dim, out_dim), row-major.
+// This matches Python: y = x @ W_c  where W_c has shape (in_dim, out_dim).
 
 #pragma once
 
+#include <stdio.h>
 #include "tensor.h"
 
-/*
-  Linear layer struct.
-
-  - in_features:  input dimension C_in
-  - out_features: output dimension C_out
-  - use_bias:     whether to use bias or not (1 = yes, 0 = no)
-  - weight:       shape (out_features, in_features)
-  - bias:         shape (out_features)  if use_bias == 1
-*/
 typedef struct {
-    int in_features;
-    int out_features;
-    int use_bias;
-    Tensor weight;
-    Tensor bias;
+    int in_dim;
+    int out_dim;
+    int use_bias;   // 1 or 0
+
+    Tensor weight;  // shape: (in_dim, out_dim)
+    Tensor bias;    // shape: (out_dim,) if use_bias
 } Linear;
 
+
 /*
-  Initialize a Linear layer.
+  Initialize Linear layer.
 
-  This allocates memory for:
-    - weight (out_features, in_features)
-    - bias (out_features) if use_bias == 1
+  in_dim   : input dimension
+  out_dim  : output dimension
+  use_bias : 1 to allocate bias, 0 otherwise
 
-  NOTE: It does NOT initialize the values to anything special.
-        You can call tensor_fill(&layer.weight, value) if you want.
+  We DO NOT do any random init here; caller can fill with whatever.
 */
-static inline void linear_init(Linear* layer, int in_f, int out_f, int use_bias) {
-    layer->in_features  = in_f;
-    layer->out_features = out_f;
-    layer->use_bias     = use_bias;
+static inline void linear_init(Linear* lin, int in_dim, int out_dim, int use_bias) {
+    lin->in_dim   = in_dim;
+    lin->out_dim  = out_dim;
+    lin->use_bias = use_bias;
 
+    // weight: (in_dim, out_dim)
     int w_shape[2];
-    w_shape[0] = out_f;
-    w_shape[1] = in_f;
-    tensor_init(&layer->weight, 2, w_shape);  // (out_f, in_f)
+    w_shape[0] = in_dim;
+    w_shape[1] = out_dim;
+    tensor_init(&lin->weight, 2, w_shape);
 
+    // bias: (out_dim,)
     if (use_bias) {
         int b_shape[1];
-        b_shape[0] = out_f;
-        tensor_init(&layer->bias, 1, b_shape);  // (out_f)
+        b_shape[0] = out_dim;
+        tensor_init(&lin->bias, 1, b_shape);
+        tensor_fill(&lin->bias, 0.0f);
     } else {
-        layer->bias.data   = NULL;
-        layer->bias.ndim   = 0;
-        layer->bias.shape[0] = 0;
+        lin->bias.data = NULL;
+        lin->bias.ndim = 0;
+    }
+
+    // By default, fill weights with 0; caller can override.
+    tensor_fill(&lin->weight, 0.0f);
+}
+
+
+/*
+  Free Linear resources.
+*/
+static inline void linear_free(Linear* lin) {
+    tensor_free(&lin->weight);
+    if (lin->use_bias && lin->bias.data != NULL) {
+        tensor_free(&lin->bias);
     }
 }
 
-/*
-  Free the memory used by the Linear layer (weights and bias).
-*/
-static inline void linear_free(Linear* layer) {
-    tensor_free(&layer->weight);
-    if (layer->use_bias) {
-        tensor_free(&layer->bias);
-    }
-}
 
 /*
-  Forward for 2D input: x shape = (N, in_features)
-  Output y shape = (N, out_features)
+  Core matmul for 2D input:
 
-  Computes:
-    y[n, o] = sum over c ( W[o, c] * x[n, c] ) + bias[o]
+    x: (N, in_dim)
+    y: (N, out_dim)
+
+  y[n, o] = sum_i x[n, i] * W[i, o] + b[o]
 */
-static inline void linear_forward2D(const Linear* layer, const Tensor* x, Tensor* y) {
-    // Check that x is 2D
-    if (x->ndim != 2) {
-        printf("linear_forward2D: ERROR: x->ndim must be 2\n");
-        return;
-    }
-
+static inline void linear_forward_2d(const Linear* lin, const Tensor* x, Tensor* y) {
     int N = x->shape[0];
-    int C = x->shape[1];
+    int C_in = x->shape[1];
 
-    if (C != layer->in_features) {
-        printf("linear_forward2D: ERROR: input features mismatch: C=%d, expected %d\n",
-               C, layer->in_features);
+    if (C_in != lin->in_dim) {
+        printf("linear_forward_2d: ERROR: input dim mismatch: %d vs %d\n",
+               C_in, lin->in_dim);
         return;
     }
 
-    // Initialize output tensor y with shape (N, out_features)
-    int y_shape[2];
-    y_shape[0] = N;
-    y_shape[1] = layer->out_features;
+    int C_out = lin->out_dim;
+    int y_shape[2] = {N, C_out};
     tensor_init(y, 2, y_shape);
 
-    // Compute y[n, o]
     for (int n = 0; n < N; ++n) {
-        for (int o = 0; o < layer->out_features; ++o) {
+        for (int o = 0; o < C_out; ++o) {
             float sum = 0.0f;
-
-            // Dot product between x[n, :] and weight[o, :]
-            for (int c = 0; c < layer->in_features; ++c) {
-                float w_oc = tensor_get2(&layer->weight, o, c); // W[o, c]
-                float x_nc = tensor_get2(x, n, c);              // x[n, c]
-                sum += w_oc * x_nc;
+            for (int i = 0; i < C_in; ++i) {
+                // x[n, i]
+                float xv = tensor_get2(x, n, i);
+                // W[i, o]
+                float wv = tensor_get2(&lin->weight, i, o);
+                sum += xv * wv;
             }
-
-            // Add bias if used
-            if (layer->use_bias) {
-                float b_o = tensor_get1(&layer->bias, o);
-                sum += b_o;
+            if (lin->use_bias) {
+                sum += tensor_get1(&lin->bias, o);
             }
-
             tensor_set2(y, n, o, sum);
         }
     }
 }
 
+
 /*
-  Forward for 3D input: x shape = (B, T, in_features)
-  Output y shape = (B, T, out_features)
+  3D version:
 
-  Computes:
-    y[b, t, o] = sum over c ( W[o, c] * x[b, t, c] ) + bias[o]
+    x: (B, T, in_dim)
+    y: (B, T, out_dim)
+
+  We flatten (B,T) to N = B*T and reuse the 2D logic.
 */
-static inline void linear_forward3D(const Linear* layer, const Tensor* x, Tensor* y) {
-    if (x->ndim != 3) {
-        printf("linear_forward3D: ERROR: x->ndim must be 3\n");
-        return;
-    }
-
+static inline void linear_forward_3d(const Linear* lin, const Tensor* x, Tensor* y) {
     int B = x->shape[0];
     int T = x->shape[1];
-    int C = x->shape[2];
+    int C_in = x->shape[2];
 
-    if (C != layer->in_features) {
-        printf("linear_forward3D: ERROR: input features mismatch: C=%d, expected %d\n",
-               C, layer->in_features);
+    if (C_in != lin->in_dim) {
+        printf("linear_forward_3d: ERROR: input dim mismatch: %d vs %d\n",
+               C_in, lin->in_dim);
         return;
     }
 
-    // Initialize output tensor y with shape (B, T, out_features)
-    int y_shape[3];
-    y_shape[0] = B;
-    y_shape[1] = T;
-    y_shape[2] = layer->out_features;
+    int C_out = lin->out_dim;
+    int y_shape[3] = {B, T, C_out};
     tensor_init(y, 3, y_shape);
 
+    // For each (b,t), compute out[b,t,:] = x[b,t,:] @ W
     for (int b = 0; b < B; ++b) {
         for (int t = 0; t < T; ++t) {
-            for (int o = 0; o < layer->out_features; ++o) {
+            for (int o = 0; o < C_out; ++o) {
                 float sum = 0.0f;
-
-                // Dot product between x[b, t, :] and weight[o, :]
-                for (int c = 0; c < layer->in_features; ++c) {
-                    float w_oc = tensor_get2(&layer->weight, o, c);   // W[o, c]
-                    float x_btc = tensor_get3(x, b, t, c);            // x[b, t, c]
-                    sum += w_oc * x_btc;
+                for (int i = 0; i < C_in; ++i) {
+                    float xv = tensor_get3(x, b, t, i);    // x[b,t,i]
+                    float wv = tensor_get2(&lin->weight, i, o); // W[i,o]
+                    sum += xv * wv;
                 }
-
-                if (layer->use_bias) {
-                    float b_o = tensor_get1(&layer->bias, o);
-                    sum += b_o;
+                if (lin->use_bias) {
+                    sum += tensor_get1(&lin->bias, o);
                 }
-
                 tensor_set3(y, b, t, o, sum);
             }
         }
     }
 }
 
+
 /*
-  Convenience wrapper that calls either 2D or 3D forward
-  depending on x->ndim.
+  Dispatch based on ndim of x.
 */
-static inline void linear_forward(const Linear* layer, const Tensor* x, Tensor* y) {
+static inline void linear_forward(const Linear* lin, const Tensor* x, Tensor* y) {
     if (x->ndim == 2) {
-        linear_forward2D(layer, x, y);
+        linear_forward_2d(lin, x, y);
     } else if (x->ndim == 3) {
-        linear_forward3D(layer, x, y);
+        linear_forward_3d(lin, x, y);
     } else {
-        printf("linear_forward: ERROR: x->ndim must be 2 or 3, got %d\n", x->ndim);
+        printf("linear_forward: ERROR: x->ndim must be 2 or 3\n");
     }
 }
 
