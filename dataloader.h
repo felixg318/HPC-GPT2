@@ -18,16 +18,26 @@ typedef struct {
 
 // A simple whitespace tokenizer.
 // In a real application, you would use a proper tokenizer like BPE.
+// A simple character-to-integer mapping.
+// This is a placeholder for a real tokenizer (e.g., BPE).
+static inline int char_to_int(char c) {
+    if (c >= 'a' && c <= 'z') {
+        return c - 'a';
+    } else if (c == ' ') {
+        return 26; // Map space to 26
+    } else if (c == '.') {
+        return 27; // Map period to 27
+    } else if (c == '\n') {
+        return 28; // Map newline to 28
+    } else {
+        return 26; // Default to space for unknown characters
+    }
+}
+
 static inline void tokenize(char* text, int* tokens, int* num_tokens) {
-    char* delim = " 	
-";
-    char* p = strtok(text, delim);
     int count = 0;
-    while (p != NULL) {
-        // A real tokenizer would map words to integers.
-        // Here, we just use the first character as the token.
-        tokens[count++] = (int)p[0];
-        p = strtok(NULL, delim);
+    for (int i = 0; text[i] != '\0'; ++i) {
+        tokens[count++] = char_to_int(text[i]);
     }
     *num_tokens = count;
 }

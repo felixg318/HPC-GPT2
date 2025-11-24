@@ -7,17 +7,17 @@
 
 int main() {
     // Hyperparameters
-    int vocab_size = 50257;
-    int block_size = 1024;
-    int n_layer = 12;
-    int n_head = 12;
-    int n_embd = 768;
+    int vocab_size = 29;
+    int block_size = 8;
+    int n_layer = 2;
+    int n_head = 2;
+    int n_embd = 16;
     float dropout_p = 0.1f;
     
-    int batch_size = 8;
-    int seq_len = 64;
+    int batch_size = 1;
+    int seq_len = 5;
     float lr = 1e-4;
-    int epochs = 10;
+    int epochs = 2;
     float clip_grad_norm_val = 1.0f;
 
     // Initialize model

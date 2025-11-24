@@ -12,7 +12,7 @@
 #include "layernorm.h"
 #include "linear.h"
 #include "cross_entropy.h"
-#include "add.h"
+#include "broadcast.h"
 
 typedef struct {
     int vocab_size;
@@ -135,7 +135,7 @@ static inline void gpt_forward_logits(GPT* g,
 
     // x = tok_emb + pos_emb
     Tensor x;
-    add_forward(&tok_emb, &pos_emb, &x);
+    broadcast_add_forward(&tok_emb, &pos_emb, &x);
 
     tensor_free(&tok_emb);
     tensor_free(&pos_emb);
