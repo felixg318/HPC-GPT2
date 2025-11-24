@@ -6,6 +6,11 @@
 #include <math.h>   // for tanh, sqrt, powf
 #include "tensor.h"
 
+// Context for the GELU operation
+typedef struct {
+    Tensor* input;
+} GELUContext;
+
 /*
   Scalar GELU (approximate version, like PyTorch GELU with approximate='tanh').
 
@@ -21,6 +26,33 @@ static inline float gelu_scalar(float x) {
     float y = 0.5f * x * (1.0f + t);
     return y;
 }
+
+// Backward function for GELU
+static inline void gelu_backward(Tensor* t) {
+    GELUContext* ctx = (GELUContext*)t->_ctx;
+    Tensor* x = ctx->input;
+    Tensor* y = t;
+
+    const float SQRT_2_OVER_PI = 0.7978845608028654f;
+
+    int n = tensor_numel(x);
+    for (int i = 0; i < n; ++i) {
+        float x_val = x->data[i];
+        float x2 = x_val * x_val;
+        float x3 = x2 * x_val;
+        
+        float inner = SQRT_2_OVER_PI * (x_val + 0.044715f * x3);
+        float t = tanhf(inner);
+        float sech_inner_2 = 1.0f - t * t;
+        float inner_derivative = SQRT_2_OVER_PI * (1.0f + 0.044715f * 3.0f * x2);
+        
+        float grad_gelu = 0.5f * (1.0f + t) + 0.5f * x_val * sech_inner_2 * inner_derivative;
+        x->grad[i] += y->grad[i] * grad_gelu;
+    }
+
+    free(ctx);
+}
+
 
 /*
   Apply GELU in-place to all elements of a Tensor.
@@ -57,4 +89,11 @@ static inline void gelu_tensor(const Tensor* x, Tensor* y) {
         float v = x->data[i];
         y->data[i] = gelu_scalar(v);
     }
+    
+    // Create context for autograd
+    GELUContext* ctx = (GELUContext*)malloc(sizeof(GELUContext));
+    ctx->input = (Tensor*)x;
+    
+    y->_ctx = ctx;
+    y->_backward = gelu_backward;
 }

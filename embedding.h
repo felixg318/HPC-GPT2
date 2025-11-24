@@ -21,6 +21,14 @@ typedef struct {
     Tensor weight;   // shape: (num_embeddings, embedding_dim)
 } Embedding;
 
+// Context for the embedding operation
+typedef struct {
+    Embedding* emb;
+    const int* idx;
+    int B;
+    int T;
+} EmbeddingContext;
+
 
 /*
   Initialize an Embedding.
@@ -51,6 +59,47 @@ static inline void embedding_free(Embedding* emb) {
     tensor_free(&emb->weight);
 }
 
+// Backward function for 2D embedding
+static inline void embedding_backward_2d(Tensor* t) {
+    EmbeddingContext* ctx = (EmbeddingContext*)t->_ctx;
+    Embedding* emb = ctx->emb;
+    const int* idx = ctx->idx;
+    int B = ctx->B;
+    int T = ctx->T;
+    Tensor* out = t;
+
+    for (int b = 0; b < B; ++b) {
+        for (int t_ = 0; t_ < T; ++t_) {
+            int token_id = idx[b * T + t_];
+            if (token_id >= 0 && token_id < emb->num_embeddings) {
+                for (int d = 0; d < emb->embedding_dim; ++d) {
+                    emb->weight.grad[tensor_index2(&emb->weight, token_id, d)] += out->grad[tensor_index3(out, b, t_, d)];
+                }
+            }
+        }
+    }
+    free(ctx);
+}
+
+// Backward function for 1D embedding
+static inline void embedding_backward_1d(Tensor* t) {
+    EmbeddingContext* ctx = (EmbeddingContext*)t->_ctx;
+    Embedding* emb = ctx->emb;
+    const int* idx = ctx->idx;
+    int T = ctx->T;
+    Tensor* out = t;
+
+    for (int t_ = 0; t_ < T; ++t_) {
+        int id = idx[t_];
+        if (id >= 0 && id < emb->num_embeddings) {
+            for (int d = 0; d < emb->embedding_dim; ++d) {
+                emb->weight.grad[tensor_index2(&emb->weight, id, d)] += out->grad[tensor_index2(out, t_, d)];
+            }
+        }
+    }
+    free(ctx);
+}
+
 
 /*
   Forward pass for token indices, 2D case:
@@ -61,7 +110,7 @@ static inline void embedding_free(Embedding* emb) {
   out[b, t, :] = weight[ idx[b, t], : ]
 */
 static inline void embedding_forward_2d(
-    const Embedding* emb,
+    Embedding* emb,
     const int* idx,   // pointer to int[B*T]
     int B,
     int T,
@@ -90,6 +139,16 @@ static inline void embedding_forward_2d(
             }
         }
     }
+    
+    // Create context for autograd
+    EmbeddingContext* ctx = (EmbeddingContext*)malloc(sizeof(EmbeddingContext));
+    ctx->emb = emb;
+    ctx->idx = idx;
+    ctx->B = B;
+    ctx->T = T;
+    
+    out->_ctx = ctx;
+    out->_backward = embedding_backward_2d;
 }
 
 
@@ -102,7 +161,7 @@ static inline void embedding_forward_2d(
   out[t, :] = weight[ idx[t], : ]
 */
 static inline void embedding_forward_1d(
-    const Embedding* emb,
+    Embedding* emb,
     const int* idx,  // pointer to int[T]
     int T,
     Tensor* out
@@ -126,4 +185,14 @@ static inline void embedding_forward_1d(
             tensor_set2(out, t, d, val);                    // out[t, d]
         }
     }
+    
+    // Create context for autograd
+    EmbeddingContext* ctx = (EmbeddingContext*)malloc(sizeof(EmbeddingContext));
+    ctx->emb = emb;
+    ctx->idx = idx;
+    ctx->B = 0;
+    ctx->T = T;
+
+    out->_ctx = ctx;
+    out->_backward = embedding_backward_1d;
 }

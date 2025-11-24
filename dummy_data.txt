@@ -1,0 +1,8 @@
+This is a dummy text file for training.
+It contains some words that the model can learn.
+The dataloader will read this file and create batches of data.
+The model will then be trained on this data.
+This is a very simple example.
+A real training script would use a much larger dataset.
+But for now, this will do.
+Thank you.

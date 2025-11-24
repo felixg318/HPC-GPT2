@@ -21,6 +21,14 @@ typedef struct {
     float dropout_p;  // keep probability (unused for now)
 } MLP;
 
+// Context for the MLP operation
+typedef struct {
+    MLP* mlp;
+    Tensor* x;
+    Tensor* t1;
+    Tensor* t2;
+} MLPContext;
+
 
 /*
   Simple helper to fill Linear weights & bias with constants.
@@ -68,6 +76,26 @@ static inline void mlp_free(MLP* mlp) {
     linear_free(&mlp->c_proj);
 }
 
+// Backward function for MLP
+static inline void mlp_backward(Tensor* t) {
+    MLPContext* ctx = (MLPContext*)t->_ctx;
+
+    // Backward pass for c_proj
+    ctx->t2->_backward(t);
+
+    // Backward pass for GELU
+    ctx->t1->_backward(ctx->t2);
+
+    // Backward pass for c_fc
+    ctx->x->_backward(ctx->t1);
+
+    tensor_free(ctx->t1);
+    free(ctx->t1);
+    tensor_free(ctx->t2);
+    free(ctx->t2);
+    free(ctx);
+}
+
 
 /*
   Forward pass through the MLP.
@@ -82,27 +110,25 @@ static inline void mlp_free(MLP* mlp) {
     x is NOT modified and caller must free y with tensor_free().
 */
 static inline void mlp_forward(MLP* mlp, const Tensor* x, Tensor* y) {
-    Tensor t1;   // result of first linear
-    Tensor t2;   // result of GELU(t1)
-    Tensor t3;   // result of second linear
+    Tensor* t1 = (Tensor*)malloc(sizeof(Tensor));   // result of first linear
+    Tensor* t2 = (Tensor*)malloc(sizeof(Tensor));   // result of GELU(t1)
 
     // 1) x -> c_fc
-    linear_forward(&mlp->c_fc, x, &t1);
+    linear_forward(&mlp->c_fc, x, t1);
 
     // 2) GELU
-    gelu_tensor(&t1, &t2);
-
-    // We no longer need t1
-    tensor_free(&t1);
+    gelu_tensor(t1, t2);
 
     // 3) t2 -> c_proj
-    linear_forward(&mlp->c_proj, &t2, &t3);
+    linear_forward(&mlp->c_proj, t2, y);
 
-    // 4) Dropout (ignored; just alias t3 -> y)
-    *y = t3;
-
-    // Free t2
-    tensor_free(&t2);
-
-    // NOTE: t3's data is now owned by y and should NOT be freed here.
+    // Create context for autograd
+    MLPContext* ctx = (MLPContext*)malloc(sizeof(MLPContext));
+    ctx->mlp = mlp;
+    ctx->x = (Tensor*)x;
+    ctx->t1 = t1;
+    ctx->t2 = t2;
+    
+    y->_ctx = ctx;
+    y->_backward = mlp_backward;
 }

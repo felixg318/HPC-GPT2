@@ -12,6 +12,7 @@
 #include "layernorm.h"
 #include "linear.h"
 #include "cross_entropy.h"
+#include "add.h"
 
 typedef struct {
     int vocab_size;
@@ -117,8 +118,6 @@ static inline void gpt_forward_logits(GPT* g,
         return;
     }
 
-    int n_embd = g->n_embd;
-
     // 1) Token & positional embeddings
     Tensor tok_emb;
     embedding_forward_2d(&g->wte, idx, B, T, &tok_emb);  // (B,T,n_embd)
@@ -136,41 +135,31 @@ static inline void gpt_forward_logits(GPT* g,
 
     // x = tok_emb + pos_emb
     Tensor x;
-    int x_shape[3] = {B, T, n_embd};
-    tensor_init(&x, 3, x_shape);
-
-    for (int b = 0; b < B; ++b) {
-        for (int t = 0; t < T; ++t) {
-            for (int d = 0; d < n_embd; ++d) {
-                float v_tok = tensor_get3(&tok_emb, b, t, d);
-                float v_pos = tensor_get2(&pos_emb, t, d);
-                tensor_set3(&x, b, t, d, v_tok + v_pos);
-            }
-        }
-    }
+    add_forward(&tok_emb, &pos_emb, &x);
 
     tensor_free(&tok_emb);
     tensor_free(&pos_emb);
 
     // 2) Blocks
-    Tensor current = x;
-    Tensor next;
+    Tensor* current = &x;
+    Tensor* next = (Tensor*)malloc(sizeof(Tensor));
 
     for (int i = 0; i < g->n_layer; ++i) {
-        block_forward(&g->blocks[i], &current, &next);
-
-        if (i == 0) {
-            tensor_free(&current);  // free original x after first block
-        } else {
-            // previous 'current' already freed in prior iteration
+        block_forward(&g->blocks[i], current, next);
+        if (i > 0) {
+            tensor_free(current);
+            free(current);
         }
         current = next;
+        next = (Tensor*)malloc(sizeof(Tensor));
     }
+    free(next);
 
     // 3) Final LN
     Tensor x_ln;
-    layernorm_forward(&g->ln_f, &current, &x_ln);
-    tensor_free(&current);
+    layernorm_forward(&g->ln_f, current, &x_ln);
+    tensor_free(current);
+    free(current);
 
     // 4) LM head
     linear_forward(&g->lm_head, &x_ln, logits);
@@ -190,7 +179,7 @@ static inline void gpt_forward_logits(GPT* g,
 
    Outputs:
      logits_out : Tensor (B, T, vocab_size)
-     loss_out   : scalar float (mean cross-entropy)
+     loss_out   : Tensor of shape (1,)
 */
 static inline void gpt_forward_with_loss(GPT* g,
                                          const int* idx,
@@ -198,14 +187,12 @@ static inline void gpt_forward_with_loss(GPT* g,
                                          int B,
                                          int T,
                                          Tensor* logits_out,
-                                         float* loss_out) {
+                                         Tensor* loss_out) {
     // First compute logits
     gpt_forward_logits(g, idx, B, T, logits_out);
 
     // Then compute CE loss over all positions
-    float loss = cross_entropy_loss_3d(logits_out, targets, B, T);
-    if (loss_out != NULL) {
-        *loss_out = loss;
-    }
+    cross_entropy_loss_3d(logits_out, targets, B, T, loss_out);
 }
+
 

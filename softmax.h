@@ -7,6 +7,68 @@
 #include <math.h>
 #include <stdio.h>
 
+// Context for the softmax operation
+typedef struct {
+    Tensor* input;
+    Tensor* output;
+} SoftmaxContext;
+
+// Backward function for 2D softmax
+static inline void softmax_backward_2d(Tensor* t) {
+    SoftmaxContext* ctx = (SoftmaxContext*)t->_ctx;
+    Tensor* x = ctx->input;
+    Tensor* y = ctx->output;
+    
+    int N = x->shape[0];
+    int C = x->shape[1];
+
+    for (int n = 0; n < N; ++n) {
+        // Compute dot product of y and grad_y for this row
+        float dot_product = 0.0f;
+        for (int c = 0; c < C; ++c) {
+            dot_product += tensor_get2(y, n, c) * y->grad[tensor_index2(y, n, c)];
+        }
+        
+        // Compute grad_x for this row
+        for (int c = 0; c < C; ++c) {
+            float y_val = tensor_get2(y, n, c);
+            float grad_y_val = y->grad[tensor_index2(y, n, c)];
+            x->grad[tensor_index2(x, n, c)] += y_val * (grad_y_val - dot_product);
+        }
+    }
+    free(ctx);
+}
+
+// Backward function for 3D softmax
+static inline void softmax_backward_3d(Tensor* t) {
+    SoftmaxContext* ctx = (SoftmaxContext*)t->_ctx;
+    Tensor* x = ctx->input;
+    Tensor* y = ctx->output;
+
+    int B = x->shape[0];
+    int T = x->shape[1];
+    int C = x->shape[2];
+
+    for (int b = 0; b < B; ++b) {
+        for (int t = 0; t < T; ++t) {
+            // Compute dot product of y and grad_y for this slice
+            float dot_product = 0.0f;
+            for (int c = 0; c < C; ++c) {
+                dot_product += tensor_get3(y, b, t, c) * y->grad[tensor_index3(y, b, t, c)];
+            }
+            
+            // Compute grad_x for this slice
+            for (int c = 0; c < C; ++c) {
+                float y_val = tensor_get3(y, b, t, c);
+                float grad_y_val = y->grad[tensor_index3(y, b, t, c)];
+                x->grad[tensor_index3(x, b, t, c)] += y_val * (grad_y_val - dot_product);
+            }
+        }
+    }
+    free(ctx);
+}
+
+
 /*
     Softmax for a (N, C) tensor over last dimension C.
 */
@@ -42,6 +104,14 @@ static inline void softmax_forward_2d(const Tensor* x, Tensor* y) {
 
         free(temp);
     }
+    
+    // Create context for autograd
+    SoftmaxContext* ctx = (SoftmaxContext*)malloc(sizeof(SoftmaxContext));
+    ctx->input = (Tensor*)x;
+    ctx->output = y;
+    
+    y->_ctx = ctx;
+    y->_backward = softmax_backward_2d;
 }
 
 
@@ -85,6 +155,14 @@ static inline void softmax_forward_3d(const Tensor* x, Tensor* y) {
             free(temp);
         }
     }
+    
+    // Create context for autograd
+    SoftmaxContext* ctx = (SoftmaxContext*)malloc(sizeof(SoftmaxContext));
+    ctx->input = (Tensor*)x;
+    ctx->output = y;
+    
+    y->_ctx = ctx;
+    y->_backward = softmax_backward_3d;
 }
 
 

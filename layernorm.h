@@ -15,6 +15,13 @@ typedef struct {
     Tensor beta;   // bias  parameter (n_embd)
 } LayerNorm;
 
+// Context for the layernorm operation
+typedef struct {
+    LayerNorm* ln_layer;
+    Tensor* input;
+    Tensor* normalized;
+} LayerNormContext;
+
 
 /*
   Initialize LayerNorm with embedding dimension n_embd.
@@ -47,6 +54,107 @@ static inline void layernorm_free(LayerNorm* ln) {
     tensor_free(&ln->beta);
 }
 
+// Backward function for 2D layernorm
+static inline void layernorm_backward_2d(Tensor* t) {
+    LayerNormContext* ctx = (LayerNormContext*)t->_ctx;
+    LayerNorm* ln = ctx->ln_layer;
+    Tensor* x = ctx->input;
+    Tensor* y = t;
+    
+    int N = x->shape[0];
+    int C = ln->normalized_dim;
+    
+    for (int n = 0; n < N; ++n) {
+        float mean = 0.0f;
+        for (int c = 0; c < C; ++c) mean += tensor_get2(x, n, c);
+        mean /= C;
+
+        float var = 0.0f;
+        for (int c = 0; c < C; ++c) {
+            float diff = tensor_get2(x, n, c) - mean;
+            var += diff * diff;
+        }
+        var /= C;
+        float inv_std = 1.0f / sqrtf(var + ln->eps);
+
+        // Gradients for gamma and beta
+        for (int c = 0; c < C; ++c) {
+            ln->gamma.grad[c] += y->grad[tensor_index2(y, n, c)] * (tensor_get2(x, n, c) - mean) * inv_std;
+            ln->beta.grad[c] += y->grad[tensor_index2(y, n, c)];
+        }
+
+        // Gradient for input x
+        float dnorm_dx_sum = 0;
+        float dnorm_dx_mul_x_minus_mean_sum = 0;
+        for (int c = 0; c < C; c++) {
+            dnorm_dx_sum += y->grad[tensor_index2(y, n, c)] * tensor_get1(&ln->gamma, c);
+            dnorm_dx_mul_x_minus_mean_sum += y->grad[tensor_index2(y, n, c)] * tensor_get1(&ln->gamma, c) * (tensor_get2(x, n, c) - mean);
+        }
+
+        for (int c = 0; c < C; c++) {
+            float dx_hat = y->grad[tensor_index2(y, n, c)] * tensor_get1(&ln->gamma, c);
+            float term1 = C * dx_hat;
+            float term2 = dnorm_dx_sum;
+            float term3 = (tensor_get2(x, n, c) - mean) * dnorm_dx_mul_x_minus_mean_sum * inv_std * inv_std;
+            x->grad[tensor_index2(x, n, c)] += (term1 - term2 - term3) * inv_std / C;
+        }
+    }
+    
+    free(ctx);
+}
+
+// Backward function for 3D layernorm
+static inline void layernorm_backward_3d(Tensor* t) {
+    LayerNormContext* ctx = (LayerNormContext*)t->_ctx;
+    LayerNorm* ln = ctx->ln_layer;
+    Tensor* x = ctx->input;
+    Tensor* y = t;
+
+    int B = x->shape[0];
+    int T = x->shape[1];
+    int C = ln->normalized_dim;
+
+    for (int b = 0; b < B; ++b) {
+        for (int t_ = 0; t_ < T; ++t_) {
+            float mean = 0.0f;
+            for (int c = 0; c < C; ++c) mean += tensor_get3(x, b, t_, c);
+            mean /= C;
+
+            float var = 0.0f;
+            for (int c = 0; c < C; ++c) {
+                float diff = tensor_get3(x, b, t_, c) - mean;
+                var += diff * diff;
+            }
+            var /= C;
+            float inv_std = 1.0f / sqrtf(var + ln->eps);
+
+            // Gradients for gamma and beta
+            for (int c = 0; c < C; ++c) {
+                ln->gamma.grad[c] += y->grad[tensor_index3(y, b, t_, c)] * (tensor_get3(x, b, t_, c) - mean) * inv_std;
+                ln->beta.grad[c] += y->grad[tensor_index3(y, b, t_, c)];
+            }
+
+            // Gradient for input x
+            float dnorm_dx_sum = 0;
+            float dnorm_dx_mul_x_minus_mean_sum = 0;
+            for (int c = 0; c < C; c++) {
+                dnorm_dx_sum += y->grad[tensor_index3(y, b, t_, c)] * tensor_get1(&ln->gamma, c);
+                dnorm_dx_mul_x_minus_mean_sum += y->grad[tensor_index3(y, b, t_, c)] * tensor_get1(&ln->gamma, c) * (tensor_get3(x, b, t_, c) - mean);
+            }
+
+            for (int c = 0; c < C; c++) {
+                float dx_hat = y->grad[tensor_index3(y, b, t_, c)] * tensor_get1(&ln->gamma, c);
+                float term1 = C * dx_hat;
+                float term2 = dnorm_dx_sum;
+                float term3 = (tensor_get3(x, b, t_, c) - mean) * dnorm_dx_mul_x_minus_mean_sum * inv_std * inv_std;
+                x->grad[tensor_index3(x, b, t_, c)] += (term1 - term2 - term3) * inv_std / C;
+            }
+        }
+    }
+    
+    free(ctx);
+}
+
 
 /*
   Apply LayerNorm to a (N, C) tensor.
@@ -54,7 +162,7 @@ static inline void layernorm_free(LayerNorm* ln) {
   x: shape (N, C)
   y: returned tensor (same shape)
 */
-static inline void layernorm_forward_2d(const LayerNorm* ln, const Tensor* x, Tensor* y) {
+static inline void layernorm_forward_2d(LayerNorm* ln, const Tensor* x, Tensor* y) {
     int N = x->shape[0];
     int C = x->shape[1];
 
@@ -95,6 +203,14 @@ static inline void layernorm_forward_2d(const LayerNorm* ln, const Tensor* x, Te
             tensor_set2(y, n, c, norm * g + b);
         }
     }
+    
+    // Create context for autograd
+    LayerNormContext* ctx = (LayerNormContext*)malloc(sizeof(LayerNormContext));
+    ctx->ln_layer = ln;
+    ctx->input = (Tensor*)x;
+    
+    y->_ctx = ctx;
+    y->_backward = layernorm_backward_2d;
 }
 
 
@@ -104,7 +220,7 @@ static inline void layernorm_forward_2d(const LayerNorm* ln, const Tensor* x, Te
   x: shape (B, T, C)
   y: returned tensor (same shape)
 */
-static inline void layernorm_forward_3d(const LayerNorm* ln, const Tensor* x, Tensor* y) {
+static inline void layernorm_forward_3d(LayerNorm* ln, const Tensor* x, Tensor* y) {
     int B = x->shape[0];
     int T = x->shape[1];
     int C = x->shape[2];
@@ -147,13 +263,21 @@ static inline void layernorm_forward_3d(const LayerNorm* ln, const Tensor* x, Te
             }
         }
     }
+    
+    // Create context for autograd
+    LayerNormContext* ctx = (LayerNormContext*)malloc(sizeof(LayerNormContext));
+    ctx->ln_layer = ln;
+    ctx->input = (Tensor*)x;
+    
+    y->_ctx = ctx;
+    y->_backward = layernorm_backward_3d;
 }
 
 
 /*
   Dispatch based on ndim.
 */
-static inline void layernorm_forward(const LayerNorm* ln, const Tensor* x, Tensor* y) {
+static inline void layernorm_forward(LayerNorm* ln, const Tensor* x, Tensor* y) {
     if (x->ndim == 2) {
         layernorm_forward_2d(ln, x, y);
     } else if (x->ndim == 3) {
@@ -162,4 +286,3 @@ static inline void layernorm_forward(const LayerNorm* ln, const Tensor* x, Tenso
         printf("layernorm_forward: ERROR: ndim must be 2 or 3\n");
     }
 }
-

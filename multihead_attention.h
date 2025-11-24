@@ -20,6 +20,14 @@ typedef struct {
     Linear proj;       // final projection: (embed_dim -> embed_dim)
 } MultiHeadAttention;
 
+// Context for the multi-head attention operation
+typedef struct {
+    MultiHeadAttention* mha;
+    Tensor* x;
+    Tensor* concat;
+    Tensor** head_outputs;
+} MultiHeadAttentionContext;
+
 
 /*
   Initialize MultiHeadAttention.
@@ -79,6 +87,46 @@ static inline void mha_free(MultiHeadAttention* mha) {
     linear_free(&mha->proj);
 }
 
+// Backward function for multi-head attention
+static inline void mha_backward(Tensor* t) {
+    MultiHeadAttentionContext* ctx = (MultiHeadAttentionContext*)t->_ctx;
+    
+    // Backward pass for the final projection
+    ctx->concat->_backward(t);
+    
+    // Backward pass for the concatenation
+    // This involves splitting the gradient of the concat tensor
+    // and passing it to the individual head outputs.
+    int B = ctx->concat->shape[0];
+    int T = ctx->concat->shape[1];
+    int head_size = ctx->mha->head_size;
+
+    for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
+        Tensor* h_out = ctx->head_outputs[h_idx];
+        for (int b = 0; b < B; ++b) {
+            for (int t_ = 0; t_ < T; ++t_) {
+                for (int d = 0; d < head_size; ++d) {
+                    int out_d = h_idx * head_size + d;
+                    h_out->grad[tensor_index3(h_out, b, t_, d)] = ctx->concat->grad[tensor_index3(ctx->concat, b, t_, out_d)];
+                }
+            }
+        }
+    }
+
+    // Backward pass for each head
+    for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
+        Tensor* h_out = ctx->head_outputs[h_idx];
+        h_out->_backward(h_out);
+    }
+
+    for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
+        tensor_free(ctx->head_outputs[h_idx]);
+        free(ctx->head_outputs[h_idx]);
+    }
+    free(ctx->head_outputs);
+    free(ctx);
+}
+
 
 /*
   Forward pass:
@@ -118,32 +166,35 @@ static inline void mha_forward(MultiHeadAttention* mha, const Tensor* x, Tensor*
     int concat_shape[3] = {B, T, mha->embed_dim};
     tensor_init(&concat, 3, concat_shape);
 
+    Tensor** head_outputs = (Tensor**)malloc(mha->n_heads * sizeof(Tensor*));
+
     // For each head, run head_forward and copy into concat
     for (int h_idx = 0; h_idx < mha->n_heads; ++h_idx) {
-        Tensor h_out;
-        head_forward(&mha->heads[h_idx], x, &h_out); // shape (B,T,head_size)
+        head_outputs[h_idx] = (Tensor*)malloc(sizeof(Tensor));
+        head_forward(&mha->heads[h_idx], x, head_outputs[h_idx]); // shape (B,T,head_size)
 
         // Copy into concat at offset [h_idx * head_size, (h_idx+1)*head_size)
         for (int b = 0; b < B; ++b) {
             for (int t = 0; t < T; ++t) {
                 for (int d = 0; d < mha->head_size; ++d) {
-                    float v = tensor_get3(&h_out, b, t, d);
+                    float v = tensor_get3(head_outputs[h_idx], b, t, d);
                     int out_d = h_idx * mha->head_size + d;
                     tensor_set3(&concat, b, t, out_d, v);
                 }
             }
         }
-
-        // Free h_out after copying
-        tensor_free(&h_out);
     }
 
     // 2) Apply final linear projection: proj(concat) -> out
     linear_forward(&mha->proj, &concat, out);
 
-    // Free intermediate concat
-    tensor_free(&concat);
-
-    // NOTE: out is allocated inside linear_forward; caller must tensor_free(out).
+    // Create context for autograd
+    MultiHeadAttentionContext* ctx = (MultiHeadAttentionContext*)malloc(sizeof(MultiHeadAttentionContext));
+    ctx->mha = mha;
+    ctx->x = (Tensor*)x;
+    ctx->concat = &concat;
+    ctx->head_outputs = head_outputs;
+    
+    out->_ctx = ctx;
+    out->_backward = mha_backward;
 }
-

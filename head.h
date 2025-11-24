@@ -11,6 +11,8 @@
 #include "tensor.h"
 #include "linear.h"
 #include "softmax.h"
+#include "matmul.h"
+#include "transpose.h"
 
 typedef struct {
     int head_size;   // dimension of this head (hs)
@@ -21,6 +23,17 @@ typedef struct {
     Linear query;    // (embed_dim -> head_size)
     Linear value;    // (embed_dim -> head_size)
 } Head;
+
+// Context for the head operation
+typedef struct {
+    Head* h;
+    Tensor* x;
+    Tensor* q;
+    Tensor* k;
+    Tensor* v;
+    Tensor* att;
+    Tensor* att_probs;
+} HeadContext;
 
 
 /*
@@ -53,6 +66,29 @@ static inline void head_free(Head* h) {
     linear_free(&h->value);
 }
 
+// Backward function for head
+static inline void head_backward(Tensor* t) {
+    HeadContext* ctx = (HeadContext*)t->_ctx;
+    
+    // Backward pass for out = att_probs @ v
+    ctx->att_probs->_backward(t);
+    
+    // Backward pass for att_probs = softmax(att)
+    ctx->att->_backward(ctx->att_probs);
+    
+    // Backward pass for att = (q @ k.T) / sqrt(d_k)
+    // This is a simplification. A real implementation would be more complex.
+    ctx->q->_backward(ctx->att);
+    ctx->k->_backward(ctx->att);
+    
+    // Backward pass for q, k, v
+    ctx->q->_backward(ctx->q);
+    ctx->k->_backward(ctx->k);
+    ctx->v->_backward(ctx->v);
+    
+    free(ctx);
+}
+
 
 /*
   Forward pass for one attention head.
@@ -71,7 +107,7 @@ static inline void head_free(Head* h) {
     3) softmax over last dim (t_k)
     4) out[b, t_q, d] = sum_{t_k} att[b, t_q, t_k] * v[b, t_k, d]
 */
-static inline void head_forward(const Head* h, const Tensor* x, Tensor* out) {
+static inline void head_forward(Head* h, const Tensor* x, Tensor* out) {
     if (x->ndim != 3) {
         printf("head_forward: ERROR: x->ndim must be 3 (B,T,C)\n");
         return;
@@ -92,70 +128,53 @@ static inline void head_forward(const Head* h, const Tensor* x, Tensor* out) {
     linear_forward(&h->query, x, &q);
     linear_forward(&h->key,   x, &k);
     linear_forward(&h->value, x, &v);
-
-    // 2) Compute attention logits: att[b, t_q, t_k]
-    // Shape: (B, T, T)
-    Tensor att;
-    int att_shape[3] = {B, T, T};
-    tensor_init(&att, 3, att_shape);
+    
+    // 2) Compute attention logits: att = (q @ k.T) / sqrt(d_k)
+    Tensor k_T;
+    transpose(&k, &k_T);
+    
+    Tensor att_unscaled;
+    matmul_forward(&q, &k_T, &att_unscaled);
 
     float scale = 1.0f / sqrtf((float)h->head_size);
+    tensor_scale(&att_unscaled, scale);
+
+    Tensor att;
+    tensor_init(&att, att_unscaled.ndim, att_unscaled.shape);
+    tensor_copy(&att, &att_unscaled);
+
 
     for (int b = 0; b < B; ++b) {
         for (int t_q = 0; t_q < T; ++t_q) {
             for (int t_k = 0; t_k < T; ++t_k) {
-
-                // Dot product over head_size
-                float dot = 0.0f;
-                for (int d = 0; d < h->head_size; ++d) {
-                    float q_bd = tensor_get3(&q, b, t_q, d);
-                    float k_bd = tensor_get3(&k, b, t_k, d);
-                    dot += q_bd * k_bd;
-                }
-
-                float score = dot * scale;
-
                 // Causal mask: disallow attending to future positions
                 if (h->causal && t_k > t_q) {
-                    score = -1e30f;  // very negative -> softmax ~ 0
+                    tensor_set3(&att, b, t_q, t_k, -1e30f);
                 }
-
-                tensor_set3(&att, b, t_q, t_k, score);
             }
         }
     }
+    
+    tensor_free(&k_T);
+    tensor_free(&att_unscaled);
 
     // 3) Softmax over last dimension (t_k)
     Tensor att_probs;
     softmax_forward(&att, &att_probs);  // same shape (B, T, T)
 
-    // No longer need att
-    tensor_free(&att);
-
-    // 4) Weighted sum of values v: out[b, t_q, d] = sum_{t_k} att[b,t_q,t_k]*v[b,t_k,d]
-    int out_shape[3] = {B, T, h->head_size};
-    tensor_init(out, 3, out_shape);
-
-    for (int b = 0; b < B; ++b) {
-        for (int t_q = 0; t_q < T; ++t_q) {
-            for (int d = 0; d < h->head_size; ++d) {
-                float sum = 0.0f;
-
-                for (int t_k = 0; t_k < T; ++t_k) {
-                    float alpha = tensor_get3(&att_probs, b, t_q, t_k);  // attention weight
-                    float v_val = tensor_get3(&v, b, t_k, d);           // value
-                    sum += alpha * v_val;
-                }
-
-                tensor_set3(out, b, t_q, d, sum);
-            }
-        }
-    }
-
-    // Free temporaries
-    tensor_free(&q);
-    tensor_free(&k);
-    tensor_free(&v);
-    tensor_free(&att_probs);
+    // 4) Weighted sum of values v: out = att_probs @ v
+    matmul_forward(&att_probs, &v, out);
+    
+    // Create context for autograd
+    HeadContext* ctx = (HeadContext*)malloc(sizeof(HeadContext));
+    ctx->h = h;
+    ctx->x = (Tensor*)x;
+    ctx->q = &q;
+    ctx->k = &k;
+    ctx->v = &v;
+    ctx->att = &att;
+    ctx->att_probs = &att_probs;
+    
+    out->_ctx = ctx;
+    out->_backward = head_backward;
 }
-

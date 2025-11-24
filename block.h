@@ -8,6 +8,7 @@
 #include "layernorm.h"
 #include "multihead_attention.h"
 #include "mlp.h"
+#include "add.h"
 
 typedef struct {
     int embed_dim;      // n_embd
@@ -63,42 +64,6 @@ static inline void block_free(Block* blk) {
 
 
 /*
-  Helper: elementwise add of two tensors with same shape.
-
-  out[i] = a[i] + b[i]
-
-  Assumes:
-    - same ndim
-    - same shape
-*/
-static inline void tensor_add_same_shape(const Tensor* a, const Tensor* b, Tensor* out) {
-    if (a->ndim != b->ndim) {
-        printf("tensor_add_same_shape: ERROR: ndim mismatch\n");
-        return;
-    }
-
-    // Copy shape
-    int shape[TENSOR_MAX_DIMS];
-    for (int i = 0; i < a->ndim; ++i) {
-        if (a->shape[i] != b->shape[i]) {
-            printf("tensor_add_same_shape: ERROR: shape[%d] mismatch: %d vs %d\n",
-                   i, a->shape[i], b->shape[i]);
-            return;
-        }
-        shape[i] = a->shape[i];
-    }
-
-    // Init out with same shape
-    tensor_init(out, a->ndim, shape);
-
-    int n = tensor_numel(a);
-    for (int i = 0; i < n; ++i) {
-        out->data[i] = a->data[i] + b->data[i];
-    }
-}
-
-
-/*
   Forward pass through one Transformer block.
 
   Input:
@@ -139,7 +104,7 @@ static inline void block_forward(Block* blk, const Tensor* x, Tensor* y) {
     tensor_free(&x_ln1);  // no longer needed
 
     Tensor x_res1;      // x + attn_out
-    tensor_add_same_shape(x, &attn_out, &x_res1);
+    add_forward(x, &attn_out, &x_res1);
 
     tensor_free(&attn_out);
 
@@ -154,7 +119,7 @@ static inline void block_forward(Block* blk, const Tensor* x, Tensor* y) {
     tensor_free(&x_ln2);
 
     // y = x_res1 + mlp_out
-    tensor_add_same_shape(&x_res1, &mlp_out, y);
+    add_forward(&x_res1, &mlp_out, y);
 
     tensor_free(&x_res1);
     tensor_free(&mlp_out);

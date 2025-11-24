@@ -17,6 +17,11 @@ typedef struct {
     Tensor bias;    // shape: (out_dim,) if use_bias
 } Linear;
 
+// Context for the linear operation
+typedef struct {
+    Linear* linear_layer;
+    Tensor* input;
+} LinearContext;
 
 /*
   Initialize Linear layer.
@@ -64,6 +69,105 @@ static inline void linear_free(Linear* lin) {
     }
 }
 
+// Backward function for 2D linear layer
+static inline void linear_backward_2d(Tensor* t) {
+    LinearContext* ctx = (LinearContext*)t->_ctx;
+    Linear* lin = ctx->linear_layer;
+    Tensor* x = ctx->input;
+    Tensor* y = t;
+
+    int N = x->shape[0];
+    int C_in = lin->in_dim;
+    int C_out = lin->out_dim;
+
+    // grad_input = grad_output @ W^T
+    for (int n = 0; n < N; ++n) {
+        for (int i = 0; i < C_in; ++i) {
+            float grad_sum = 0.0f;
+            for (int o = 0; o < C_out; ++o) {
+                grad_sum += y->grad[tensor_index2(y, n, o)] * tensor_get2(&lin->weight, i, o);
+            }
+            x->grad[tensor_index2(x, n, i)] += grad_sum;
+        }
+    }
+
+    // grad_weight = x^T @ grad_output
+    for (int i = 0; i < C_in; ++i) {
+        for (int o = 0; o < C_out; ++o) {
+            float grad_sum = 0.0f;
+            for (int n = 0; n < N; ++n) {
+                grad_sum += tensor_get2(x, n, i) * y->grad[tensor_index2(y, n, o)];
+            }
+            lin->weight.grad[tensor_index2(&lin->weight, i, o)] += grad_sum;
+        }
+    }
+
+    // grad_bias = sum(grad_output, axis=0)
+    if (lin->use_bias) {
+        for (int o = 0; o < C_out; ++o) {
+            float grad_sum = 0.0f;
+            for (int n = 0; n < N; ++n) {
+                grad_sum += y->grad[tensor_index2(y, n, o)];
+            }
+            lin->bias.grad[o] += grad_sum;
+        }
+    }
+    free(ctx);
+}
+
+// Backward function for 3D linear layer
+static inline void linear_backward_3d(Tensor* t) {
+    LinearContext* ctx = (LinearContext*)t->_ctx;
+    Linear* lin = ctx->linear_layer;
+    Tensor* x = ctx->input;
+    Tensor* y = t;
+
+    int B = x->shape[0];
+    int T = x->shape[1];
+    int C_in = lin->in_dim;
+    int C_out = lin->out_dim;
+
+    // grad_input = grad_output @ W^T
+    for (int b = 0; b < B; ++b) {
+        for (int t_ = 0; t_ < T; ++t_) {
+            for (int i = 0; i < C_in; ++i) {
+                float grad_sum = 0.0f;
+                for (int o = 0; o < C_out; ++o) {
+                    grad_sum += y->grad[tensor_index3(y, b, t_, o)] * tensor_get2(&lin->weight, i, o);
+                }
+                x->grad[tensor_index3(x, b, t_, i)] += grad_sum;
+            }
+        }
+    }
+
+    // grad_weight = x^T @ grad_output
+    for (int i = 0; i < C_in; ++i) {
+        for (int o = 0; o < C_out; ++o) {
+            float grad_sum = 0.0f;
+            for (int b = 0; b < B; ++b) {
+                for (int t_ = 0; t_ < T; ++t_) {
+                    grad_sum += tensor_get3(x, b, t_, i) * y->grad[tensor_index3(y, b, t_, o)];
+                }
+            }
+            lin->weight.grad[tensor_index2(&lin->weight, i, o)] += grad_sum;
+        }
+    }
+
+    // grad_bias = sum(grad_output, axis=0)
+    if (lin->use_bias) {
+        for (int o = 0; o < C_out; ++o) {
+            float grad_sum = 0.0f;
+            for (int b = 0; b < B; ++b) {
+                for (int t_ = 0; t_ < T; ++t_) {
+                    grad_sum += y->grad[tensor_index3(y, b, t_, o)];
+                }
+            }
+            lin->bias.grad[o] += grad_sum;
+        }
+    }
+    free(ctx);
+}
+
 
 /*
   Core matmul for 2D input:
@@ -73,7 +177,7 @@ static inline void linear_free(Linear* lin) {
 
   y[n, o] = sum_i x[n, i] * W[i, o] + b[o]
 */
-static inline void linear_forward_2d(const Linear* lin, const Tensor* x, Tensor* y) {
+static inline void linear_forward_2d(Linear* lin, const Tensor* x, Tensor* y) {
     int N = x->shape[0];
     int C_in = x->shape[1];
 
@@ -103,6 +207,14 @@ static inline void linear_forward_2d(const Linear* lin, const Tensor* x, Tensor*
             tensor_set2(y, n, o, sum);
         }
     }
+    
+    // Create context for autograd
+    LinearContext* ctx = (LinearContext*)malloc(sizeof(LinearContext));
+    ctx->linear_layer = lin;
+    ctx->input = (Tensor*)x;
+    
+    y->_ctx = ctx;
+    y->_backward = linear_backward_2d;
 }
 
 
@@ -114,7 +226,7 @@ static inline void linear_forward_2d(const Linear* lin, const Tensor* x, Tensor*
 
   We flatten (B,T) to N = B*T and reuse the 2D logic.
 */
-static inline void linear_forward_3d(const Linear* lin, const Tensor* x, Tensor* y) {
+static inline void linear_forward_3d(Linear* lin, const Tensor* x, Tensor* y) {
     int B = x->shape[0];
     int T = x->shape[1];
     int C_in = x->shape[2];
@@ -146,13 +258,21 @@ static inline void linear_forward_3d(const Linear* lin, const Tensor* x, Tensor*
             }
         }
     }
+    
+    // Create context for autograd
+    LinearContext* ctx = (LinearContext*)malloc(sizeof(LinearContext));
+    ctx->linear_layer = lin;
+    ctx->input = (Tensor*)x;
+    
+    y->_ctx = ctx;
+    y->_backward = linear_backward_3d;
 }
 
 
 /*
   Dispatch based on ndim of x.
 */
-static inline void linear_forward(const Linear* lin, const Tensor* x, Tensor* y) {
+static inline void linear_forward(Linear* lin, const Tensor* x, Tensor* y) {
     if (x->ndim == 2) {
         linear_forward_2d(lin, x, y);
     } else if (x->ndim == 3) {

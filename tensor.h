@@ -5,20 +5,31 @@
 
 #include <stdlib.h>   // for malloc, free
 #include <stdio.h>    // for printf (optional, for error messages)
+#include <string.h>   // for memset
 
 #define TENSOR_MAX_DIMS 4  // we only need up to 3D (plus a little safety)
+
+// Forward declaration of Tensor struct to use it in function pointers.
+struct Tensor;
 
 /*
   A very simple N-dimensional tensor of floats.
 
   - data: pointer to a contiguous block of memory
+  - grad: pointer to a contiguous block of memory for gradients
   - shape: sizes of each dimension, e.g. shape[0]=B, shape[1]=T, shape[2]=C
   - ndim: how many dimensions are actually used (1,2,3,...)
+  - _ctx: context for autograd
+  - _backward: backward function for autograd
 */
-typedef struct {
+typedef struct Tensor {
     float* data;                    // pointer to data on CPU
+    float* grad;                    // pointer to gradient on CPU
     int    shape[TENSOR_MAX_DIMS];  // sizes of each dimension
     int    ndim;                    // number of dimensions actually used
+    void*  _ctx;                    // autograd context
+    void   (*_backward)(struct Tensor* t); // autograd backward function
+    int    visited;                 // for topological sort
 } Tensor;
 
 /*
@@ -53,9 +64,17 @@ static inline void tensor_init(Tensor* t, int ndim, const int* shape) {
 
     int n = tensor_numel(t);
     t->data = (float*)malloc(n * sizeof(float));
-    if (t->data == NULL) {
+    t->grad = (float*)malloc(n * sizeof(float));
+    if (t->data == NULL || t->grad == NULL) {
         printf("tensor_init: ERROR: malloc failed for %d elements\n", n);
     }
+    
+    // Initialize grad to zero
+    memset(t->grad, 0, n * sizeof(float));
+
+    t->_ctx = NULL;
+    t->_backward = NULL;
+    t->visited = 0;
 }
 
 /*
@@ -65,6 +84,10 @@ static inline void tensor_free(Tensor* t) {
     if (t->data != NULL) {
         free(t->data);
         t->data = NULL;
+    }
+    if (t->grad != NULL) {
+        free(t->grad);
+        t->grad = NULL;
     }
     t->ndim = 0;
     for (int i = 0; i < TENSOR_MAX_DIMS; ++i) {
@@ -81,6 +104,52 @@ static inline void tensor_fill(Tensor* t, float value) {
         t->data[i] = value;
     }
 }
+
+/*
+  Zero out the tensor data.
+*/
+static inline void tensor_zero(Tensor* t) {
+    int n = tensor_numel(t);
+    memset(t->data, 0, n * sizeof(float));
+}
+
+
+/*
+  Zero out the tensor gradients.
+*/
+static inline void tensor_zero_grad(Tensor* t) {
+    int n = tensor_numel(t);
+    memset(t->grad, 0, n * sizeof(float));
+}
+
+/*
+  Scale the tensor by a scalar value.
+*/
+static inline void tensor_scale(Tensor* t, float scale) {
+    int n = tensor_numel(t);
+    for (int i = 0; i < n; i++) {
+        t->data[i] *= scale;
+    }
+}
+
+/*
+  Copy data from one tensor to another.
+*/
+static inline void tensor_copy(Tensor* dst, const Tensor* src) {
+    if (dst->ndim != src->ndim) {
+        printf("tensor_copy: ERROR: ndim mismatch\n");
+        return;
+    }
+    for (int i = 0; i < dst->ndim; i++) {
+        if (dst->shape[i] != src->shape[i]) {
+            printf("tensor_copy: ERROR: shape mismatch\n");
+            return;
+        }
+    }
+    int n = tensor_numel(src);
+    memcpy(dst->data, src->data, n * sizeof(float));
+}
+
 
 /*
   Index helpers.
@@ -151,4 +220,3 @@ static inline void tensor_set3(Tensor* t, int i, int j, int k, float value) {
     int idx = tensor_index3(t, i, j, k);
     t->data[idx] = value;
 }
-
