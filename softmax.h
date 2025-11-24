@@ -109,7 +109,7 @@ static inline void softmax_forward_2d(const Tensor* x, Tensor* y) {
     SoftmaxContext* ctx = (SoftmaxContext*)malloc(sizeof(SoftmaxContext));
     ctx->input = (Tensor*)x;
     ctx->output = y;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = softmax_backward_2d;
 }
@@ -160,7 +160,7 @@ static inline void softmax_forward_3d(const Tensor* x, Tensor* y) {
     SoftmaxContext* ctx = (SoftmaxContext*)malloc(sizeof(SoftmaxContext));
     ctx->input = (Tensor*)x;
     ctx->output = y;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = softmax_backward_3d;
 }
@@ -178,4 +178,3 @@ static inline void softmax_forward(const Tensor* x, Tensor* y) {
         printf("softmax_forward: ERROR: x->ndim must be 2 or 3\n");
     }
 }
-

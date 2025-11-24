@@ -118,11 +118,5 @@ static inline void block_forward(Block* blk,
     // y = x_res1 + mlp_out
     add_forward(x_res1, mlp_out, y);
 
-    tensor_tracker_release(tracker, x_ln1);
-    tensor_tracker_release(tracker, attn_out);
-    tensor_tracker_release(tracker, x_res1);
-    tensor_tracker_release(tracker, x_ln2);
-    tensor_tracker_release(tracker, mlp_out);
-
     // 'y' now has shape (B,T,C) and must be freed by caller with tensor_free(y).
 }

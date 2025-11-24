@@ -30,6 +30,8 @@ typedef struct Tensor {
     int    ndim;                    // number of dimensions actually used
     void*  _ctx;                    // autograd context
     void   (*_backward)(struct Tensor* t); // autograd backward function
+    struct Tensor** _inputs;        // upstream tensors
+    int    _num_inputs;             // number of upstream tensors
     int    visited;                 // for topological sort
 } Tensor;
 
@@ -108,6 +110,39 @@ static inline void tensor_tracker_release(TensorTracker* tracker, Tensor* t) {
     }
 }
 
+static inline void tensor_set_inputs(Tensor* t, Tensor** inputs, int count) {
+    if (t->_inputs != NULL) {
+        free(t->_inputs);
+        t->_inputs = NULL;
+    }
+    t->_num_inputs = 0;
+    if (count <= 0 || inputs == NULL) {
+        return;
+    }
+    t->_inputs = (Tensor**)malloc(count * sizeof(Tensor*));
+    if (t->_inputs == NULL) {
+        printf("tensor_set_inputs: ERROR: malloc failed\n");
+        return;
+    }
+    for (int i = 0; i < count; ++i) {
+        t->_inputs[i] = inputs[i];
+    }
+    t->_num_inputs = count;
+}
+
+static inline void tensor_set_inputs1(Tensor* t, Tensor* a) {
+    Tensor* arr[1];
+    arr[0] = a;
+    tensor_set_inputs(t, arr, 1);
+}
+
+static inline void tensor_set_inputs2(Tensor* t, Tensor* a, Tensor* b) {
+    Tensor* arr[2];
+    arr[0] = a;
+    arr[1] = b;
+    tensor_set_inputs(t, arr, 2);
+}
+
 /*
   Helper: compute number of elements = shape[0] * shape[1] * ... * shape[ndim-1]
 */
@@ -150,6 +185,8 @@ static inline void tensor_init(Tensor* t, int ndim, const int* shape) {
 
     t->_ctx = NULL;
     t->_backward = NULL;
+    t->_inputs = NULL;
+    t->_num_inputs = 0;
     t->visited = 0;
 }
 
@@ -169,6 +206,13 @@ static inline void tensor_free(Tensor* t) {
     for (int i = 0; i < TENSOR_MAX_DIMS; ++i) {
         t->shape[i] = 0;
     }
+    if (t->_inputs != NULL) {
+        free(t->_inputs);
+        t->_inputs = NULL;
+    }
+    t->_num_inputs = 0;
+    t->_ctx = NULL;
+    t->_backward = NULL;
 }
 
 /*

@@ -124,7 +124,7 @@ static inline void cross_entropy_loss_3d(const Tensor* logits,
     int out_shape[1] = {1};
     tensor_init(out, 1, out_shape);
     out->data[0] = mean_loss;
-    
+
     // Create context for autograd
     CrossEntropyContext* ctx = (CrossEntropyContext*)malloc(sizeof(CrossEntropyContext));
     ctx->logits = (Tensor*)logits;
@@ -132,7 +132,7 @@ static inline void cross_entropy_loss_3d(const Tensor* logits,
     ctx->B = B;
     ctx->T = T;
     
+    tensor_set_inputs1(out, (Tensor*)logits);
     out->_ctx = ctx;
     out->_backward = cross_entropy_backward;
 }
-

@@ -24,17 +24,6 @@ typedef struct {
     Linear value;    // (embed_dim -> head_size)
 } Head;
 
-// Context for the head operation
-typedef struct {
-    Head* h;
-    TensorTracker* tracker;
-    Tensor* x;
-    Tensor* q;
-    Tensor* k;
-    Tensor* v;
-    Tensor* att;
-    Tensor* att_probs;
-} HeadContext;
 
 
 /*
@@ -66,42 +55,6 @@ static inline void head_free(Head* h) {
     linear_free(&h->query);
     linear_free(&h->value);
 }
-
-// Backward function for head
-static inline void head_backward(Tensor* t) {
-    HeadContext* ctx = (HeadContext*)t->_ctx;
-    
-    // Backward pass for out = att_probs @ v
-    ctx->att_probs->_backward(t);
-    
-    // Backward pass for att_probs = softmax(att)
-    ctx->att->_backward(ctx->att_probs);
-    
-    // Backward pass for att = (q @ k.T) / sqrt(d_k)
-    // This is a simplification. A real implementation would be more complex.
-    ctx->q->_backward(ctx->att);
-    ctx->k->_backward(ctx->att);
-    
-    // Backward pass for q, k, v
-    ctx->q->_backward(ctx->q);
-    ctx->k->_backward(ctx->k);
-    ctx->v->_backward(ctx->v);
-    
-    if (ctx->tracker == NULL) {
-        tensor_free(ctx->q);
-        free(ctx->q);
-        tensor_free(ctx->k);
-        free(ctx->k);
-        tensor_free(ctx->v);
-        free(ctx->v);
-        tensor_free(ctx->att);
-        free(ctx->att);
-        tensor_free(ctx->att_probs);
-        free(ctx->att_probs);
-    }
-    free(ctx);
-}
-
 
 /*
   Forward pass for one attention head.
@@ -182,18 +135,4 @@ static inline void head_forward(Head* h,
 
     // 4) Weighted sum of values v: out = att_probs @ v
     matmul_forward(att_probs, v, out);
-    
-    // Create context for autograd
-    HeadContext* ctx = (HeadContext*)malloc(sizeof(HeadContext));
-    ctx->h = h;
-    ctx->tracker = tracker;
-    ctx->x = (Tensor*)x;
-    ctx->q = q;
-    ctx->k = k;
-    ctx->v = v;
-    ctx->att = att;
-    ctx->att_probs = att_probs;
-    
-    out->_ctx = ctx;
-    out->_backward = head_backward;
 }

@@ -120,6 +120,7 @@ static inline void matmul_forward(const Tensor* a, const Tensor* b, Tensor* out)
     ctx->a = (Tensor*)a;
     ctx->b = (Tensor*)b;
 
+    tensor_set_inputs2(out, (Tensor*)a, (Tensor*)b);
     out->_ctx = ctx;
     out->_backward = matmul_backward;
 }

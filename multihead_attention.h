@@ -22,12 +22,46 @@ typedef struct {
 
 // Context for the multi-head attention operation
 typedef struct {
-    MultiHeadAttention* mha;
     TensorTracker* tracker;
-    Tensor* x;
-    Tensor* concat;
+    int n_heads;
+    int head_size;
     Tensor** head_outputs;
-} MultiHeadAttentionContext;
+} ConcatHeadsContext;
+
+static inline void concat_heads_backward(Tensor* t) {
+    ConcatHeadsContext* ctx = (ConcatHeadsContext*)t->_ctx;
+    Tensor* concat = t;
+    if (ctx->n_heads == 0) {
+        free(ctx->head_outputs);
+        free(ctx);
+        return;
+    }
+    Tensor* ref = ctx->head_outputs[0];
+    int B = ref->shape[0];
+    int T = ref->shape[1];
+    int head_size = ctx->head_size;
+
+    for (int h_idx = 0; h_idx < ctx->n_heads; ++h_idx) {
+        Tensor* h_out = ctx->head_outputs[h_idx];
+        for (int b = 0; b < B; ++b) {
+            for (int t_ = 0; t_ < T; ++t_) {
+                for (int d = 0; d < head_size; ++d) {
+                    int out_d = h_idx * head_size + d;
+                    h_out->grad[tensor_index3(h_out, b, t_, d)] += concat->grad[tensor_index3(concat, b, t_, out_d)];
+                }
+            }
+        }
+    }
+
+    if (ctx->tracker == NULL) {
+        for (int h_idx = 0; h_idx < ctx->n_heads; ++h_idx) {
+            tensor_free(ctx->head_outputs[h_idx]);
+            free(ctx->head_outputs[h_idx]);
+        }
+    }
+    free(ctx->head_outputs);
+    free(ctx);
+}
 
 
 /*
@@ -87,51 +121,6 @@ static inline void mha_free(MultiHeadAttention* mha) {
 
     linear_free(&mha->proj);
 }
-
-// Backward function for multi-head attention
-static inline void mha_backward(Tensor* t) {
-    MultiHeadAttentionContext* ctx = (MultiHeadAttentionContext*)t->_ctx;
-    
-    // Backward pass for the final projection
-    ctx->concat->_backward(t);
-    
-    // Backward pass for the concatenation
-    // This involves splitting the gradient of the concat tensor
-    // and passing it to the individual head outputs.
-    int B = ctx->concat->shape[0];
-    int T = ctx->concat->shape[1];
-    int head_size = ctx->mha->head_size;
-
-    for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
-        Tensor* h_out = ctx->head_outputs[h_idx];
-        for (int b = 0; b < B; ++b) {
-            for (int t_ = 0; t_ < T; ++t_) {
-                for (int d = 0; d < head_size; ++d) {
-                    int out_d = h_idx * head_size + d;
-                    h_out->grad[tensor_index3(h_out, b, t_, d)] = ctx->concat->grad[tensor_index3(ctx->concat, b, t_, out_d)];
-                }
-            }
-        }
-    }
-
-    // Backward pass for each head
-    for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
-        Tensor* h_out = ctx->head_outputs[h_idx];
-        h_out->_backward(h_out);
-    }
-
-    if (ctx->tracker == NULL) {
-        for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
-            tensor_free(ctx->head_outputs[h_idx]);
-            free(ctx->head_outputs[h_idx]);
-        }
-        tensor_free(ctx->concat);
-        free(ctx->concat);
-    }
-    free(ctx->head_outputs);
-    free(ctx);
-}
-
 
 /*
   Forward pass:
@@ -193,17 +182,16 @@ static inline void mha_forward(MultiHeadAttention* mha,
         }
     }
 
+    // Create context for concat so gradients reach individual heads
+    ConcatHeadsContext* concat_ctx = (ConcatHeadsContext*)malloc(sizeof(ConcatHeadsContext));
+    concat_ctx->tracker = tracker;
+    concat_ctx->n_heads = mha->n_heads;
+    concat_ctx->head_size = mha->head_size;
+    concat_ctx->head_outputs = head_outputs;
+    tensor_set_inputs(concat, head_outputs, mha->n_heads);
+    concat->_ctx = concat_ctx;
+    concat->_backward = concat_heads_backward;
+
     // 2) Apply final linear projection: proj(concat) -> out
     linear_forward(&mha->proj, concat, out);
-
-    // Create context for autograd
-    MultiHeadAttentionContext* ctx = (MultiHeadAttentionContext*)malloc(sizeof(MultiHeadAttentionContext));
-    ctx->mha = mha;
-    ctx->tracker = tracker;
-    ctx->x = (Tensor*)x;
-    ctx->concat = concat;
-    ctx->head_outputs = head_outputs;
-    
-    out->_ctx = ctx;
-    out->_backward = mha_backward;
 }

@@ -208,7 +208,7 @@ static inline void layernorm_forward_2d(LayerNorm* ln, const Tensor* x, Tensor* 
     LayerNormContext* ctx = (LayerNormContext*)malloc(sizeof(LayerNormContext));
     ctx->ln_layer = ln;
     ctx->input = (Tensor*)x;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = layernorm_backward_2d;
 }
@@ -268,7 +268,7 @@ static inline void layernorm_forward_3d(LayerNorm* ln, const Tensor* x, Tensor* 
     LayerNormContext* ctx = (LayerNormContext*)malloc(sizeof(LayerNormContext));
     ctx->ln_layer = ln;
     ctx->input = (Tensor*)x;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = layernorm_backward_3d;
 }

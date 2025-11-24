@@ -21,14 +21,6 @@ typedef struct {
     float dropout_p;  // keep probability (unused for now)
 } MLP;
 
-// Context for the MLP operation
-typedef struct {
-    MLP* mlp;
-    TensorTracker* tracker;
-    Tensor* x;
-    Tensor* t1;
-    Tensor* t2;
-} MLPContext;
 
 
 /*
@@ -77,29 +69,6 @@ static inline void mlp_free(MLP* mlp) {
     linear_free(&mlp->c_proj);
 }
 
-// Backward function for MLP
-static inline void mlp_backward(Tensor* t) {
-    MLPContext* ctx = (MLPContext*)t->_ctx;
-
-    // Backward pass for c_proj
-    ctx->t2->_backward(t);
-
-    // Backward pass for GELU
-    ctx->t1->_backward(ctx->t2);
-
-    // Backward pass for c_fc
-    ctx->x->_backward(ctx->t1);
-
-    if (ctx->tracker == NULL) {
-        tensor_free(ctx->t1);
-        free(ctx->t1);
-        tensor_free(ctx->t2);
-        free(ctx->t2);
-    }
-    free(ctx);
-}
-
-
 /*
   Forward pass through the MLP.
 
@@ -127,15 +96,4 @@ static inline void mlp_forward(MLP* mlp,
 
     // 3) t2 -> c_proj
     linear_forward(&mlp->c_proj, t2, y);
-
-    // Create context for autograd
-    MLPContext* ctx = (MLPContext*)malloc(sizeof(MLPContext));
-    ctx->mlp = mlp;
-    ctx->tracker = tracker;
-    ctx->x = (Tensor*)x;
-    ctx->t1 = t1;
-    ctx->t2 = t2;
-    
-    y->_ctx = ctx;
-    y->_backward = mlp_backward;
 }

@@ -212,7 +212,7 @@ static inline void linear_forward_2d(Linear* lin, const Tensor* x, Tensor* y) {
     LinearContext* ctx = (LinearContext*)malloc(sizeof(LinearContext));
     ctx->linear_layer = lin;
     ctx->input = (Tensor*)x;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = linear_backward_2d;
 }
@@ -263,7 +263,7 @@ static inline void linear_forward_3d(Linear* lin, const Tensor* x, Tensor* y) {
     LinearContext* ctx = (LinearContext*)malloc(sizeof(LinearContext));
     ctx->linear_layer = lin;
     ctx->input = (Tensor*)x;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = linear_backward_3d;
 }
@@ -281,4 +281,3 @@ static inline void linear_forward(Linear* lin, const Tensor* x, Tensor* y) {
         printf("linear_forward: ERROR: x->ndim must be 2 or 3\n");
     }
 }
-

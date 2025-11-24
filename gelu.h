@@ -93,7 +93,7 @@ static inline void gelu_tensor(const Tensor* x, Tensor* y) {
     // Create context for autograd
     GELUContext* ctx = (GELUContext*)malloc(sizeof(GELUContext));
     ctx->input = (Tensor*)x;
-    
+    tensor_set_inputs1(y, (Tensor*)x);
     y->_ctx = ctx;
     y->_backward = gelu_backward;
 }
