@@ -23,6 +23,7 @@ static inline void add_backward(Tensor* t) {
         a->grad[i] += t->grad[i];
         b->grad[i] += t->grad[i];
     }
+    free(ctx);
 }
 
 

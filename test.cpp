@@ -98,7 +98,7 @@ int main() {
 
     // 7) Forward through block
     Tensor y_c;
-    block_forward(&blk, &x_in, &y_c);
+    block_forward(&blk, &x_in, &y_c, NULL);
 
     // 8) Compare with PyTorch output
     int n_y = B * T * C;

@@ -7,17 +7,17 @@
 
 int main() {
     // Hyperparameters
-    int vocab_size = 29;
-    int block_size = 8;
+    int vocab_size = 65;     // toy vocab
+    int block_size = 32;
     int n_layer = 2;
     int n_head = 2;
-    int n_embd = 16;
+    int n_embd = 64;
     float dropout_p = 0.1f;
     
-    int batch_size = 1;
-    int seq_len = 5;
-    float lr = 1e-4;
-    int epochs = 2;
+    int batch_size = 2;
+    int seq_len = 32;
+    float lr = 1e-3f;
+    int epochs = 20;
     float clip_grad_norm_val = 1.0f;
 
     // Initialize model
@@ -54,7 +54,7 @@ int main() {
     params[num_params++] = &gpt.ln_f.beta;
     params[num_params++] = &gpt.lm_head.weight;
     
-    adam_init(&optimizer, params, num_params, lr, 0.9f, 0.999f, 1e-8f);
+    adam_init(&optimizer, params, num_params, lr, 0.9f, 0.95f, 1e-8f);
     optimizer.lr_scheduler = linear_lr_decay;
     
     // Initialize dataloader
@@ -73,6 +73,7 @@ int main() {
         
         // Backward pass
         backward(&loss);
+        gpt_clear_activations(&gpt);
         
         // Update weights
         adam_step(&optimizer, clip_grad_norm_val);
@@ -89,6 +90,7 @@ int main() {
     }
     
     // Free resources
+    gpt_clear_activations(&gpt);
     gpt_free(&gpt);
     adam_free(&optimizer);
     dataloader_free(&dl);

@@ -24,6 +24,7 @@ typedef struct {
 // Context for the MLP operation
 typedef struct {
     MLP* mlp;
+    TensorTracker* tracker;
     Tensor* x;
     Tensor* t1;
     Tensor* t2;
@@ -89,10 +90,12 @@ static inline void mlp_backward(Tensor* t) {
     // Backward pass for c_fc
     ctx->x->_backward(ctx->t1);
 
-    tensor_free(ctx->t1);
-    free(ctx->t1);
-    tensor_free(ctx->t2);
-    free(ctx->t2);
+    if (ctx->tracker == NULL) {
+        tensor_free(ctx->t1);
+        free(ctx->t1);
+        tensor_free(ctx->t2);
+        free(ctx->t2);
+    }
     free(ctx);
 }
 
@@ -109,9 +112,12 @@ static inline void mlp_backward(Tensor* t) {
   NOTE:
     x is NOT modified and caller must free y with tensor_free().
 */
-static inline void mlp_forward(MLP* mlp, const Tensor* x, Tensor* y) {
-    Tensor* t1 = (Tensor*)malloc(sizeof(Tensor));   // result of first linear
-    Tensor* t2 = (Tensor*)malloc(sizeof(Tensor));   // result of GELU(t1)
+static inline void mlp_forward(MLP* mlp,
+                               const Tensor* x,
+                               Tensor* y,
+                               TensorTracker* tracker) {
+    Tensor* t1 = tensor_tracker_new(tracker);   // result of first linear
+    Tensor* t2 = tensor_tracker_new(tracker);   // result of GELU(t1)
 
     // 1) x -> c_fc
     linear_forward(&mlp->c_fc, x, t1);
@@ -125,6 +131,7 @@ static inline void mlp_forward(MLP* mlp, const Tensor* x, Tensor* y) {
     // Create context for autograd
     MLPContext* ctx = (MLPContext*)malloc(sizeof(MLPContext));
     ctx->mlp = mlp;
+    ctx->tracker = tracker;
     ctx->x = (Tensor*)x;
     ctx->t1 = t1;
     ctx->t2 = t2;

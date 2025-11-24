@@ -23,6 +23,7 @@ typedef struct {
 // Context for the multi-head attention operation
 typedef struct {
     MultiHeadAttention* mha;
+    TensorTracker* tracker;
     Tensor* x;
     Tensor* concat;
     Tensor** head_outputs;
@@ -119,9 +120,13 @@ static inline void mha_backward(Tensor* t) {
         h_out->_backward(h_out);
     }
 
-    for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
-        tensor_free(ctx->head_outputs[h_idx]);
-        free(ctx->head_outputs[h_idx]);
+    if (ctx->tracker == NULL) {
+        for (int h_idx = 0; h_idx < ctx->mha->n_heads; ++h_idx) {
+            tensor_free(ctx->head_outputs[h_idx]);
+            free(ctx->head_outputs[h_idx]);
+        }
+        tensor_free(ctx->concat);
+        free(ctx->concat);
     }
     free(ctx->head_outputs);
     free(ctx);
@@ -145,7 +150,10 @@ static inline void mha_backward(Tensor* t) {
     3) Apply final projection:
          out = proj(concat)                    // (B, T, embed_dim)
 */
-static inline void mha_forward(MultiHeadAttention* mha, const Tensor* x, Tensor* out) {
+static inline void mha_forward(MultiHeadAttention* mha,
+                               const Tensor* x,
+                               Tensor* out,
+                               TensorTracker* tracker) {
     if (x->ndim != 3) {
         printf("mha_forward: ERROR: x->ndim must be 3 (B,T,C)\n");
         return;
@@ -162,16 +170,16 @@ static inline void mha_forward(MultiHeadAttention* mha, const Tensor* x, Tensor*
     }
 
     // 1) Allocate concat tensor: (B, T, embed_dim)
-    Tensor concat;
+    Tensor* concat = tensor_tracker_new(tracker);
     int concat_shape[3] = {B, T, mha->embed_dim};
-    tensor_init(&concat, 3, concat_shape);
+    tensor_init(concat, 3, concat_shape);
 
     Tensor** head_outputs = (Tensor**)malloc(mha->n_heads * sizeof(Tensor*));
 
     // For each head, run head_forward and copy into concat
     for (int h_idx = 0; h_idx < mha->n_heads; ++h_idx) {
-        head_outputs[h_idx] = (Tensor*)malloc(sizeof(Tensor));
-        head_forward(&mha->heads[h_idx], x, head_outputs[h_idx]); // shape (B,T,head_size)
+        head_outputs[h_idx] = tensor_tracker_new(tracker);
+        head_forward(&mha->heads[h_idx], x, head_outputs[h_idx], tracker); // shape (B,T,head_size)
 
         // Copy into concat at offset [h_idx * head_size, (h_idx+1)*head_size)
         for (int b = 0; b < B; ++b) {
@@ -179,20 +187,21 @@ static inline void mha_forward(MultiHeadAttention* mha, const Tensor* x, Tensor*
                 for (int d = 0; d < mha->head_size; ++d) {
                     float v = tensor_get3(head_outputs[h_idx], b, t, d);
                     int out_d = h_idx * mha->head_size + d;
-                    tensor_set3(&concat, b, t, out_d, v);
+                    tensor_set3(concat, b, t, out_d, v);
                 }
             }
         }
     }
 
     // 2) Apply final linear projection: proj(concat) -> out
-    linear_forward(&mha->proj, &concat, out);
+    linear_forward(&mha->proj, concat, out);
 
     // Create context for autograd
     MultiHeadAttentionContext* ctx = (MultiHeadAttentionContext*)malloc(sizeof(MultiHeadAttentionContext));
     ctx->mha = mha;
+    ctx->tracker = tracker;
     ctx->x = (Tensor*)x;
-    ctx->concat = &concat;
+    ctx->concat = concat;
     ctx->head_outputs = head_outputs;
     
     out->_ctx = ctx;

@@ -28,6 +28,7 @@ typedef struct {
     LayerNorm ln_f;    // final layer norm
 
     Linear lm_head;    // language modeling head: (n_embd -> vocab_size)
+    TensorTracker activations; // track intermediate tensors for backward
 } GPT;
 
 
@@ -75,6 +76,8 @@ static inline void gpt_init(GPT* g,
 
     // LM head: (n_embd -> vocab_size), no bias
     linear_init(&g->lm_head, n_embd, vocab_size, 0 /* use_bias=0 */);
+
+    tensor_tracker_init(&g->activations);
 }
 
 
@@ -95,6 +98,12 @@ static inline void gpt_free(GPT* g) {
 
     layernorm_free(&g->ln_f);
     linear_free(&g->lm_head);
+
+    tensor_tracker_free(&g->activations);
+}
+
+static inline void gpt_clear_activations(GPT* g) {
+    tensor_tracker_reset(&g->activations);
 }
 
 
@@ -118,9 +127,12 @@ static inline void gpt_forward_logits(GPT* g,
         return;
     }
 
+    TensorTracker* tracker = &g->activations;
+    tensor_tracker_reset(tracker);
+
     // 1) Token & positional embeddings
-    Tensor tok_emb;
-    embedding_forward_2d(&g->wte, idx, B, T, &tok_emb);  // (B,T,n_embd)
+    Tensor* tok_emb = tensor_tracker_new(tracker);
+    embedding_forward_2d(&g->wte, idx, B, T, tok_emb);  // (B,T,n_embd)
 
     int* pos_idx = (int*)malloc(T * sizeof(int));
     if (pos_idx == NULL) {
@@ -129,41 +141,29 @@ static inline void gpt_forward_logits(GPT* g,
     }
     for (int t = 0; t < T; ++t) pos_idx[t] = t;
 
-    Tensor pos_emb;
-    embedding_forward_1d(&g->wpe, pos_idx, T, &pos_emb); // (T,n_embd)
+    Tensor* pos_emb = tensor_tracker_new(tracker);
+    embedding_forward_1d(&g->wpe, pos_idx, T, pos_emb); // (T,n_embd)
     free(pos_idx);
 
     // x = tok_emb + pos_emb
-    Tensor x;
-    broadcast_add_forward(&tok_emb, &pos_emb, &x);
-
-    tensor_free(&tok_emb);
-    tensor_free(&pos_emb);
+    Tensor* x = tensor_tracker_new(tracker);
+    broadcast_add_forward(tok_emb, pos_emb, x);
 
     // 2) Blocks
-    Tensor* current = &x;
-    Tensor* next = (Tensor*)malloc(sizeof(Tensor));
+    Tensor* current = x;
 
     for (int i = 0; i < g->n_layer; ++i) {
-        block_forward(&g->blocks[i], current, next);
-        if (i > 0) {
-            tensor_free(current);
-            free(current);
-        }
+        Tensor* next = tensor_tracker_new(tracker);
+        block_forward(&g->blocks[i], current, next, tracker);
         current = next;
-        next = (Tensor*)malloc(sizeof(Tensor));
     }
-    free(next);
 
     // 3) Final LN
-    Tensor x_ln;
-    layernorm_forward(&g->ln_f, current, &x_ln);
-    tensor_free(current);
-    free(current);
+    Tensor* x_ln = tensor_tracker_new(tracker);
+    layernorm_forward(&g->ln_f, current, x_ln);
 
     // 4) LM head
-    linear_forward(&g->lm_head, &x_ln, logits);
-    tensor_free(&x_ln);
+    linear_forward(&g->lm_head, x_ln, logits);
 }
 
 
@@ -194,5 +194,4 @@ static inline void gpt_forward_with_loss(GPT* g,
     // Then compute CE loss over all positions
     cross_entropy_loss_3d(logits_out, targets, B, T, loss_out);
 }
-
 

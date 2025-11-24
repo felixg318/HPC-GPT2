@@ -27,6 +27,7 @@ typedef struct {
 // Context for the head operation
 typedef struct {
     Head* h;
+    TensorTracker* tracker;
     Tensor* x;
     Tensor* q;
     Tensor* k;
@@ -86,6 +87,18 @@ static inline void head_backward(Tensor* t) {
     ctx->k->_backward(ctx->k);
     ctx->v->_backward(ctx->v);
     
+    if (ctx->tracker == NULL) {
+        tensor_free(ctx->q);
+        free(ctx->q);
+        tensor_free(ctx->k);
+        free(ctx->k);
+        tensor_free(ctx->v);
+        free(ctx->v);
+        tensor_free(ctx->att);
+        free(ctx->att);
+        tensor_free(ctx->att_probs);
+        free(ctx->att_probs);
+    }
     free(ctx);
 }
 
@@ -107,7 +120,10 @@ static inline void head_backward(Tensor* t) {
     3) softmax over last dim (t_k)
     4) out[b, t_q, d] = sum_{t_k} att[b, t_q, t_k] * v[b, t_k, d]
 */
-static inline void head_forward(Head* h, const Tensor* x, Tensor* out) {
+static inline void head_forward(Head* h,
+                                const Tensor* x,
+                                Tensor* out,
+                                TensorTracker* tracker) {
     if (x->ndim != 3) {
         printf("head_forward: ERROR: x->ndim must be 3 (B,T,C)\n");
         return;
@@ -124,24 +140,26 @@ static inline void head_forward(Head* h, const Tensor* x, Tensor* out) {
     }
 
     // 1) Compute q, k, v: each has shape (B, T, head_size)
-    Tensor q, k, v;
-    linear_forward(&h->query, x, &q);
-    linear_forward(&h->key,   x, &k);
-    linear_forward(&h->value, x, &v);
+    Tensor* q = tensor_tracker_new(tracker);
+    Tensor* k = tensor_tracker_new(tracker);
+    Tensor* v = tensor_tracker_new(tracker);
+    linear_forward(&h->query, x, q);
+    linear_forward(&h->key,   x, k);
+    linear_forward(&h->value, x, v);
     
     // 2) Compute attention logits: att = (q @ k.T) / sqrt(d_k)
     Tensor k_T;
-    transpose(&k, &k_T);
+    transpose(k, &k_T);
     
     Tensor att_unscaled;
-    matmul_forward(&q, &k_T, &att_unscaled);
+    matmul_forward(q, &k_T, &att_unscaled);
 
     float scale = 1.0f / sqrtf((float)h->head_size);
     tensor_scale(&att_unscaled, scale);
 
-    Tensor att;
-    tensor_init(&att, att_unscaled.ndim, att_unscaled.shape);
-    tensor_copy(&att, &att_unscaled);
+    Tensor* att = tensor_tracker_new(tracker);
+    tensor_init(att, att_unscaled.ndim, att_unscaled.shape);
+    tensor_copy(att, &att_unscaled);
 
 
     for (int b = 0; b < B; ++b) {
@@ -149,7 +167,7 @@ static inline void head_forward(Head* h, const Tensor* x, Tensor* out) {
             for (int t_k = 0; t_k < T; ++t_k) {
                 // Causal mask: disallow attending to future positions
                 if (h->causal && t_k > t_q) {
-                    tensor_set3(&att, b, t_q, t_k, -1e30f);
+                    tensor_set3(att, b, t_q, t_k, -1e30f);
                 }
             }
         }
@@ -159,21 +177,22 @@ static inline void head_forward(Head* h, const Tensor* x, Tensor* out) {
     tensor_free(&att_unscaled);
 
     // 3) Softmax over last dimension (t_k)
-    Tensor att_probs;
-    softmax_forward(&att, &att_probs);  // same shape (B, T, T)
+    Tensor* att_probs = tensor_tracker_new(tracker);
+    softmax_forward(att, att_probs);  // same shape (B, T, T)
 
     // 4) Weighted sum of values v: out = att_probs @ v
-    matmul_forward(&att_probs, &v, out);
+    matmul_forward(att_probs, v, out);
     
     // Create context for autograd
     HeadContext* ctx = (HeadContext*)malloc(sizeof(HeadContext));
     ctx->h = h;
+    ctx->tracker = tracker;
     ctx->x = (Tensor*)x;
-    ctx->q = &q;
-    ctx->k = &k;
-    ctx->v = &v;
-    ctx->att = &att;
-    ctx->att_probs = &att_probs;
+    ctx->q = q;
+    ctx->k = k;
+    ctx->v = v;
+    ctx->att = att;
+    ctx->att_probs = att_probs;
     
     out->_ctx = ctx;
     out->_backward = head_backward;

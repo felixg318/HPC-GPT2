@@ -3,9 +3,10 @@
 
 #pragma once   // Make sure the header is only included once per translation unit
 
-#include <stdlib.h>   // for malloc, free
+#include <stdlib.h>   // for malloc, free, realloc
 #include <stdio.h>    // for printf (optional, for error messages)
 #include <string.h>   // for memset
+#include <math.h>
 
 #define TENSOR_MAX_DIMS 4  // we only need up to 3D (plus a little safety)
 
@@ -31,6 +32,81 @@ typedef struct Tensor {
     void   (*_backward)(struct Tensor* t); // autograd backward function
     int    visited;                 // for topological sort
 } Tensor;
+
+typedef struct {
+    Tensor** tensors;
+    int count;
+    int capacity;
+} TensorTracker;
+
+static inline void tensor_free(Tensor* t);
+
+static inline void tensor_tracker_init(TensorTracker* tracker) {
+    tracker->tensors = NULL;
+    tracker->count = 0;
+    tracker->capacity = 0;
+}
+
+static inline void tensor_tracker_add(TensorTracker* tracker, Tensor* t) {
+    if (tracker == NULL) {
+        return;
+    }
+    if (tracker->count == tracker->capacity) {
+        int new_capacity = (tracker->capacity == 0) ? 128 : tracker->capacity * 2;
+        Tensor** new_list = (Tensor**)realloc(tracker->tensors, new_capacity * sizeof(Tensor*));
+        if (new_list == NULL) {
+            printf("tensor_tracker_add: ERROR: realloc failed\n");
+            return;
+        }
+        tracker->tensors = new_list;
+        tracker->capacity = new_capacity;
+    }
+    tracker->tensors[tracker->count++] = t;
+}
+
+static inline Tensor* tensor_tracker_new(TensorTracker* tracker) {
+    Tensor* t = (Tensor*)malloc(sizeof(Tensor));
+    if (t == NULL) {
+        printf("tensor_tracker_new: ERROR: malloc failed\n");
+        return NULL;
+    }
+    memset(t, 0, sizeof(Tensor));
+    if (tracker != NULL) {
+        tensor_tracker_add(tracker, t);
+    }
+    return t;
+}
+
+static inline void tensor_tracker_reset(TensorTracker* tracker) {
+    if (tracker == NULL) {
+        return;
+    }
+    for (int i = 0; i < tracker->count; ++i) {
+        tensor_free(tracker->tensors[i]);
+        free(tracker->tensors[i]);
+        tracker->tensors[i] = NULL;
+    }
+    tracker->count = 0;
+}
+
+static inline void tensor_tracker_free(TensorTracker* tracker) {
+    if (tracker == NULL) {
+        return;
+    }
+    tensor_tracker_reset(tracker);
+    if (tracker->tensors != NULL) {
+        free(tracker->tensors);
+        tracker->tensors = NULL;
+    }
+    tracker->capacity = 0;
+}
+
+static inline void tensor_tracker_release(TensorTracker* tracker, Tensor* t) {
+    if (tracker == NULL && t != NULL) {
+        tensor_free(t);
+        free(t);
+    }
+}
 
 /*
   Helper: compute number of elements = shape[0] * shape[1] * ... * shape[ndim-1]

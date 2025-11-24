@@ -77,7 +77,10 @@ static inline void block_free(Block* blk) {
     x = x + attn( LN1(x) )
     x = x + mlp( LN2(x) )
 */
-static inline void block_forward(Block* blk, const Tensor* x, Tensor* y) {
+static inline void block_forward(Block* blk,
+                                 const Tensor* x,
+                                 Tensor* y,
+                                 TensorTracker* tracker) {
     if (x->ndim != 3) {
         printf("block_forward: ERROR: x->ndim must be 3 (B,T,C)\n");
         return;
@@ -95,35 +98,31 @@ static inline void block_forward(Block* blk, const Tensor* x, Tensor* y) {
 
     // ----- First sub-layer: LN1 -> MHA -> residual -----
 
-    Tensor x_ln1;       // LN1(x)
-    layernorm_forward(&blk->ln1, x, &x_ln1);  // shape (B,T,C)
+    Tensor* x_ln1 = tensor_tracker_new(tracker);       // LN1(x)
+    layernorm_forward(&blk->ln1, x, x_ln1);  // shape (B,T,C)
 
-    Tensor attn_out;    // mha( LN1(x) )
-    mha_forward(&blk->mha, &x_ln1, &attn_out); // shape (B,T,C)
+    Tensor* attn_out = tensor_tracker_new(tracker);    // mha( LN1(x) )
+    mha_forward(&blk->mha, x_ln1, attn_out, tracker); // shape (B,T,C)
 
-    tensor_free(&x_ln1);  // no longer needed
-
-    Tensor x_res1;      // x + attn_out
-    add_forward(x, &attn_out, &x_res1);
-
-    tensor_free(&attn_out);
+    Tensor* x_res1 = tensor_tracker_new(tracker);      // x + attn_out
+    add_forward(x, attn_out, x_res1);
 
     // ----- Second sub-layer: LN2 -> MLP -> residual -----
 
-    Tensor x_ln2;       // LN2(x_res1)
-    layernorm_forward(&blk->ln2, &x_res1, &x_ln2);
+    Tensor* x_ln2 = tensor_tracker_new(tracker);       // LN2(x_res1)
+    layernorm_forward(&blk->ln2, x_res1, x_ln2);
 
-    Tensor mlp_out;     // mlp( LN2(x_res1) )
-    mlp_forward(&blk->mlp, &x_ln2, &mlp_out);  // shape (B,T,C)
-
-    tensor_free(&x_ln2);
+    Tensor* mlp_out = tensor_tracker_new(tracker);     // mlp( LN2(x_res1) )
+    mlp_forward(&blk->mlp, x_ln2, mlp_out, tracker);  // shape (B,T,C)
 
     // y = x_res1 + mlp_out
-    add_forward(&x_res1, &mlp_out, y);
+    add_forward(x_res1, mlp_out, y);
 
-    tensor_free(&x_res1);
-    tensor_free(&mlp_out);
+    tensor_tracker_release(tracker, x_ln1);
+    tensor_tracker_release(tracker, attn_out);
+    tensor_tracker_release(tracker, x_res1);
+    tensor_tracker_release(tracker, x_ln2);
+    tensor_tracker_release(tracker, mlp_out);
 
     // 'y' now has shape (B,T,C) and must be freed by caller with tensor_free(y).
 }
-
