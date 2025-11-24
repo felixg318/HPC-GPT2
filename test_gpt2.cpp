@@ -129,16 +129,16 @@ int main() {
 
     // 7) Forward with loss
     Tensor logits_c;
-    float loss_c;
+    Tensor loss_c;
     gpt_forward_with_loss(&g, idx_ref, idx_ref, B, T, &logits_c, &loss_c);
 
     // 8) Compare logits and loss
     int n_logits = B * T * vocab_size;
     print_max_abs_diff(logits_c.data, logits_ref, n_logits, "logits");
 
-    float loss_diff = fabsf(loss_c - loss_ref);
+    float loss_diff = fabsf(loss_c.data[0] - loss_ref);
     printf("loss_c = %.9f, loss_ref = %.9f, |diff| = %e\n",
-           loss_c, loss_ref, loss_diff);
+           loss_c.data[0], loss_ref, loss_diff);
 
     // Optionally print first few logits
     printf("First few logits_c vs logits_ref:\n");
@@ -149,6 +149,7 @@ int main() {
 
     // Cleanup
     tensor_free(&logits_c);
+    tensor_free(&loss_c);
     gpt_free(&g);
 
     return 0;
