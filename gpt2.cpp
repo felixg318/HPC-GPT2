@@ -78,7 +78,7 @@ int main() {
 
     // === Run forward WITH logits ===
     Tensor logits;
-    float loss;
+    Tensor loss;
 
     gpt_forward_with_loss(&model, idx, targets, B, T, &logits, &loss);
 
