@@ -7,8 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "tokenizer.h"
+
 typedef struct {
-    char* text;
     int* tokens;
     int num_tokens;
     int batch_size;
@@ -16,50 +17,21 @@ typedef struct {
     int current_pos;
 } DataLoader;
 
-// A simple whitespace tokenizer.
-// In a real application, you would use a proper tokenizer like BPE.
-// A simple character-to-integer mapping.
-// This is a placeholder for a real tokenizer (e.g., BPE).
-static inline int char_to_int(char c) {
-    if (c >= 'a' && c <= 'z') {
-        return c - 'a';
-    } else if (c == ' ') {
-        return 26; // Map space to 26
-    } else if (c == '.') {
-        return 27; // Map period to 27
-    } else if (c == '\n') {
-        return 28; // Map newline to 28
-    } else {
-        return 26; // Default to space for unknown characters
-    }
-}
-
-static inline void tokenize(char* text, int* tokens, int* num_tokens) {
-    int count = 0;
-    for (int i = 0; text[i] != '\0'; ++i) {
-        tokens[count++] = char_to_int(text[i]);
-    }
-    *num_tokens = count;
-}
-
-
-static inline void dataloader_init(DataLoader* dl, const char* filename, int batch_size, int seq_len) {
-    FILE* f = fopen(filename, "r");
-    if (f == NULL) {
-        printf("dataloader_init: ERROR: could not open file %s\n", filename);
+static inline void dataloader_init_with_tokenizer(DataLoader* dl,
+                                                  const Tokenizer* tokenizer,
+                                                  int batch_size,
+                                                  int seq_len) {
+    dl->num_tokens = tokenizer_data_len(tokenizer);
+    dl->tokens = (int*)malloc(dl->num_tokens * sizeof(int));
+    if (dl->tokens == NULL) {
+        printf("dataloader_init_with_tokenizer: ERROR: malloc failed\n");
+        dl->num_tokens = 0;
+        dl->batch_size = batch_size;
+        dl->seq_len = seq_len;
+        dl->current_pos = 0;
         return;
     }
-    fseek(f, 0, SEEK_END);
-    long fsize = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    dl->text = (char*)malloc(fsize + 1);
-    fread(dl->text, 1, fsize, f);
-    fclose(f);
-    dl->text[fsize] = 0;
-    
-    dl->tokens = (int*)malloc(fsize * sizeof(int)); // oversized, but safe
-    tokenize(dl->text, dl->tokens, &dl->num_tokens);
+    memcpy(dl->tokens, tokenizer_data_ptr(tokenizer), dl->num_tokens * sizeof(int));
     
     dl->batch_size = batch_size;
     dl->seq_len = seq_len;
@@ -67,8 +39,11 @@ static inline void dataloader_init(DataLoader* dl, const char* filename, int bat
 }
 
 static inline void dataloader_free(DataLoader* dl) {
-    free(dl->text);
-    free(dl->tokens);
+    if (dl->tokens != NULL) {
+        free(dl->tokens);
+        dl->tokens = NULL;
+    }
+    dl->num_tokens = 0;
 }
 
 static inline void dataloader_next_batch(DataLoader* dl, int** inputs, int** targets) {
