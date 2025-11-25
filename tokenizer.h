@@ -23,6 +23,7 @@ typedef struct {
     int encoded_capacity;
 
     int pad_id;
+    int eos_id;
 } Tokenizer;
 
 static inline void tokenizer_init(Tokenizer* tok, const char* path) {
@@ -39,6 +40,7 @@ static inline void tokenizer_init(Tokenizer* tok, const char* path) {
     tok->encoded_count = 0;
     tok->encoded_capacity = 0;
     tok->pad_id = -1;
+    tok->eos_id = -1;
     if (path != NULL) {
         size_t len = strlen(path);
         tok->file_path = (char*)malloc(len + 1);
@@ -178,6 +180,20 @@ static inline int tokenizer_add_vocab(Tokenizer* tok, const char* token) {
     return tok->vocab_size++;
 }
 
+static inline void tokenizer_append_eos(Tokenizer* tok) {
+    if (tok == NULL) return;
+    if (tok->eos_id < 0) {
+        int id = tokenizer_add_vocab(tok, "[EOS]");
+        if (id < 0) return;
+        tok->eos_id = id;
+    }
+    if (tok->encoded_count > 0 && tok->encoded[tok->encoded_count - 1] == tok->eos_id) {
+        return;
+    }
+    if (!tokenizer_reserve_encoded(tok, tok->encoded_count + 1)) return;
+    tok->encoded[tok->encoded_count++] = tok->eos_id;
+}
+
 static inline int tokenizer_encode(Tokenizer* tok) {
     tok->encoded_count = 0;
     for (int i = 0; i < tok->token_count; ++i) {
@@ -191,16 +207,36 @@ static inline int tokenizer_encode(Tokenizer* tok) {
         free(tok->token_list[i]);
     }
     tok->token_count = 0;
+    if (tok->encoded_count > 0) {
+        tokenizer_append_eos(tok);
+    }
     return tok->encoded_count > 0;
 }
 
 static inline void tokenizer_pad_to(Tokenizer* tok, size_t new_size) {
-    if ((size_t)tok->encoded_count >= new_size) return;
+    int removed_eos = 0;
+    if (tok->eos_id >= 0 && tok->encoded_count > 0 &&
+        tok->encoded[tok->encoded_count - 1] == tok->eos_id) {
+        --tok->encoded_count;
+        removed_eos = 1;
+    }
+    size_t target_size = new_size;
+    int extra_for_eos = removed_eos ? 1 : 0;
+    if ((size_t)tok->encoded_count >= target_size) {
+        if (removed_eos) tokenizer_append_eos(tok);
+        return;
+    }
     int pad = tokenizer_add_vocab(tok, "[PAD]");
     if (tok->pad_id < 0) tok->pad_id = pad;
-    if (!tokenizer_reserve_encoded(tok, (int)new_size)) return;
-    while ((size_t)tok->encoded_count < new_size) {
+    if (!tokenizer_reserve_encoded(tok, (int)target_size + extra_for_eos)) {
+        if (removed_eos) tokenizer_append_eos(tok);
+        return;
+    }
+    while ((size_t)tok->encoded_count < target_size) {
         tok->encoded[tok->encoded_count++] = pad;
+    }
+    if (removed_eos) {
+        tokenizer_append_eos(tok);
     }
 }
 
@@ -218,6 +254,10 @@ static inline int tokenizer_vocab_size(const Tokenizer* tok) {
 
 static inline int tokenizer_pad_id(const Tokenizer* tok) {
     return tok->pad_id;
+}
+
+static inline int tokenizer_eos_id(const Tokenizer* tok) {
+    return tok->eos_id;
 }
 
 static inline const char* tokenizer_token_from_id(const Tokenizer* tok, int id) {

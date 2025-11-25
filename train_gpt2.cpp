@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <chrono>
 #include "gpt.h"
 #include "dataloader.h"
 #include "adam.h"
@@ -35,16 +36,17 @@ static void generate_sample_text(GPT* gpt,
         return;
     }
 
-    int total_tokens = seed_len + max_new_tokens;
-    int* context = (int*)malloc(total_tokens * sizeof(int));
+    int total_capacity = seed_len + max_new_tokens;
+    int* context = (int*)malloc(total_capacity * sizeof(int));
     if (context == NULL) {
         printf("generate_sample_text: failed to allocate context buffer\n");
         return;
     }
     for (int i = 0; i < seed_len; ++i) context[i] = seed_tokens[i];
     int current_len = seed_len;
+    int eos_id = tokenizer_eos_id(tokenizer);
 
-    while (current_len < total_tokens) {
+    while (current_len < total_capacity) {
         int window = current_len < gpt->block_size ? current_len : gpt->block_size;
         const int* window_ptr = context + (current_len - window);
         Tensor logits;
@@ -52,10 +54,15 @@ static void generate_sample_text(GPT* gpt,
         int next_token = greedy_select_next_token(&logits);
         tensor_free(&logits);
         context[current_len++] = next_token;
+        if (eos_id >= 0 && next_token == eos_id) {
+            printf("Encountered EOS token at position %d, stopping generation.\n", current_len - 1);
+            break;
+        }
     }
 
-    printf("\nGenerated sample (%d seed tokens + %d new tokens):\n", seed_len, max_new_tokens);
-    tokenizer_print_tokens(tokenizer, context, total_tokens);
+    int generated_tokens = current_len - seed_len;
+    printf("\nGenerated sample (%d seed tokens + %d new tokens):\n", seed_len, generated_tokens);
+    tokenizer_print_tokens(tokenizer, context, current_len);
     printf("\n");
     free(context);
 }
@@ -73,17 +80,17 @@ int main() {
         return 1;
     }
     
-    // Hyperparameters
-    int block_size = 32;
-    int n_layer = 2;
-    int n_head = 2;
-    int n_embd = 64;
-    float dropout_p = 0.1f;
+    // Hyperparameters (aligned with the GPT-2 config)
+    int block_size = 1024;   // n_ctx / n_positions
+    int n_layer = 12;
+    int n_head = 12;
+    int n_embd = 768;
+    float dropout_p = 0.1f;  // resid/embd/attn dropout
     
     int batch_size = 2;
-    int seq_len = 32;
+    int seq_len = block_size;
     float lr = 1e-3f;
-    int epochs = 20;
+    int epochs = 1;
     float clip_grad_norm_val = 1.0f;
 
     size_t min_tokens = (size_t)batch_size * seq_len + 1;
@@ -131,6 +138,8 @@ int main() {
     DataLoader dl;
     dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len);
 
+    auto train_start = std::chrono::high_resolution_clock::now();
+
     // Training loop
     for (int epoch = 0; epoch < epochs; ++epoch) {
         int* inputs;
@@ -159,6 +168,10 @@ int main() {
         tensor_free(&loss);
     }
 
+    auto train_end = std::chrono::high_resolution_clock::now();
+    double train_ms = std::chrono::duration_cast<std::chrono::milliseconds>(train_end - train_start).count();
+    printf("Total training time: %.2f seconds (%.2f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
+
     // Simple text generation demo to inspect model behavior post-training
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
@@ -166,7 +179,7 @@ int main() {
         int prompt_len = seq_len;
         if (prompt_len > corpus_len) prompt_len = corpus_len;
         if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
-        int max_new_tokens = 50;
+        int max_new_tokens = 30;
         generate_sample_text(&gpt, &tokenizer, corpus_tokens, prompt_len, max_new_tokens);
     } else {
         printf("Skipping text generation; tokenizer has no tokens.\n");
