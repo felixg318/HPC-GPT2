@@ -219,3 +219,35 @@ static inline int tokenizer_vocab_size(const Tokenizer* tok) {
 static inline int tokenizer_pad_id(const Tokenizer* tok) {
     return tok->pad_id;
 }
+
+static inline const char* tokenizer_token_from_id(const Tokenizer* tok, int id) {
+    if (tok == NULL || tok->vocab == NULL) return NULL;
+    if (id < 0 || id >= tok->vocab_size) return NULL;
+    return tok->vocab[id];
+}
+
+static inline void tokenizer_print_tokens(const Tokenizer* tok, const int* token_ids, int len) {
+    if (tok == NULL || token_ids == NULL || len <= 0) {
+        printf("(no tokens)\n");
+        return;
+    }
+    for (int i = 0; i < len; ++i) {
+        const char* token = tokenizer_token_from_id(tok, token_ids[i]);
+        if (token == NULL) token = "[UNK]";
+        if (i > 0) {
+            int add_space = 1;
+            size_t token_len = strlen(token);
+            if (token_len == 1) {
+                unsigned char c = (unsigned char)token[0];
+                if (!isalnum(c)) {
+                    add_space = 0;
+                }
+            }
+            if (add_space) {
+                printf(" ");
+            }
+        }
+        printf("%s", token);
+    }
+    printf("\n");
+}

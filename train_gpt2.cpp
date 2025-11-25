@@ -5,6 +5,61 @@
 #include "adam.h"
 #include "autograd.h"
 
+static int greedy_select_next_token(const Tensor* logits) {
+    if (logits == NULL || logits->ndim != 3) return 0;
+    int V = logits->shape[2];
+    int last_t = logits->shape[1] - 1;
+    float best_val = tensor_get3(logits, 0, last_t, 0);
+    int best_idx = 0;
+    for (int v = 1; v < V; ++v) {
+        float val = tensor_get3(logits, 0, last_t, v);
+        if (val > best_val) {
+            best_val = val;
+            best_idx = v;
+        }
+    }
+    return best_idx;
+}
+
+static void generate_sample_text(GPT* gpt,
+                                 const Tokenizer* tokenizer,
+                                 const int* seed_tokens,
+                                 int seed_len,
+                                 int max_new_tokens) {
+    if (gpt == NULL || tokenizer == NULL || seed_tokens == NULL) {
+        printf("generate_sample_text: missing inputs\n");
+        return;
+    }
+    if (seed_len <= 0) {
+        printf("generate_sample_text: need at least one seed token\n");
+        return;
+    }
+
+    int total_tokens = seed_len + max_new_tokens;
+    int* context = (int*)malloc(total_tokens * sizeof(int));
+    if (context == NULL) {
+        printf("generate_sample_text: failed to allocate context buffer\n");
+        return;
+    }
+    for (int i = 0; i < seed_len; ++i) context[i] = seed_tokens[i];
+    int current_len = seed_len;
+
+    while (current_len < total_tokens) {
+        int window = current_len < gpt->block_size ? current_len : gpt->block_size;
+        const int* window_ptr = context + (current_len - window);
+        Tensor logits;
+        gpt_forward_logits(gpt, window_ptr, 1, window, &logits);
+        int next_token = greedy_select_next_token(&logits);
+        tensor_free(&logits);
+        context[current_len++] = next_token;
+    }
+
+    printf("\nGenerated sample (%d seed tokens + %d new tokens):\n", seed_len, max_new_tokens);
+    tokenizer_print_tokens(tokenizer, context, total_tokens);
+    printf("\n");
+    free(context);
+}
+
 int main() {
     // Tokenize training corpus
     Tokenizer tokenizer;
@@ -102,6 +157,19 @@ int main() {
         free(targets);
         tensor_free(&logits);
         tensor_free(&loss);
+    }
+
+    // Simple text generation demo to inspect model behavior post-training
+    const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
+    int corpus_len = tokenizer_data_len(&tokenizer);
+    if (corpus_len > 0) {
+        int prompt_len = seq_len;
+        if (prompt_len > corpus_len) prompt_len = corpus_len;
+        if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
+        int max_new_tokens = 50;
+        generate_sample_text(&gpt, &tokenizer, corpus_tokens, prompt_len, max_new_tokens);
+    } else {
+        printf("Skipping text generation; tokenizer has no tokens.\n");
     }
     
     // Free resources
