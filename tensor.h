@@ -7,6 +7,7 @@
 #include <stdio.h>    // for printf (optional, for error messages)
 #include <string.h>   // for memset
 #include <math.h>
+#include <time.h>
 
 #define TENSOR_MAX_DIMS 4  // we only need up to 3D (plus a little safety)
 
@@ -259,6 +260,31 @@ static inline void tensor_fill(Tensor* t, float value) {
     int n = tensor_numel(t);
     for (int i = 0; i < n; ++i) {
         t->data[i] = value;
+    }
+}
+
+static inline float tensor_rand_uniform() {
+    static int tensor_rand_seeded = 0;
+    if (!tensor_rand_seeded) {
+        srand((unsigned int)time(NULL));
+        tensor_rand_seeded = 1;
+    }
+    return ((float)rand() + 1.0f) / ((float)RAND_MAX + 2.0f);
+}
+
+static inline float tensor_randn(float mean, float stddev) {
+    float u1 = tensor_rand_uniform();
+    float u2 = tensor_rand_uniform();
+    float r = sqrtf(-2.0f * logf(u1));
+    float theta = 2.0f * 3.14159265358979323846f * u2;
+    float z = r * cosf(theta);
+    return mean + z * stddev;
+}
+
+static inline void tensor_fill_randn(Tensor* t, float mean, float stddev) {
+    int n = tensor_numel(t);
+    for (int i = 0; i < n; ++i) {
+        t->data[i] = tensor_randn(mean, stddev);
     }
 }
 

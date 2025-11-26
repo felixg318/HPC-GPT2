@@ -49,7 +49,7 @@ static inline void embedding_init(Embedding* emb, int num_embeddings, int embedd
 
     // For now, we can fill with zeros or some small constant.
     // Later we will load real weights from PyTorch.
-    tensor_fill(&emb->weight, 0.0f);
+    tensor_fill_randn(&emb->weight, 0.0f, 0.02f);
 }
 
 /*

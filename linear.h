@@ -54,8 +54,7 @@ static inline void linear_init(Linear* lin, int in_dim, int out_dim, int use_bia
         lin->bias.ndim = 0;
     }
 
-    // By default, fill weights with 0; caller can override.
-    tensor_fill(&lin->weight, 0.0f);
+    tensor_fill_randn(&lin->weight, 0.0f, 0.02f);
 }
 
 
