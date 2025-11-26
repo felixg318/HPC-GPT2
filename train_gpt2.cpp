@@ -81,13 +81,13 @@ int main() {
     }
     
     // Hyperparameters (aligned with the GPT-2 config)
-    int block_size = 1024;   // n_ctx / n_positions
-    int n_layer = 12;
-    int n_head = 12;
-    int n_embd = 768;
-    float dropout_p = 0.1f;  // resid/embd/attn dropout
+    int block_size = 16;   // n_ctx / n_positions
+    int n_layer = 1;
+    int n_head = 2;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
+    int n_embd = 64;
+    float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 2;
+    int batch_size = 1;
     int seq_len = block_size;
     float lr = 1e-3f;
     int epochs = 1;
@@ -170,9 +170,10 @@ int main() {
 
     auto train_end = std::chrono::high_resolution_clock::now();
     double train_ms = std::chrono::duration_cast<std::chrono::milliseconds>(train_end - train_start).count();
-    printf("Total training time: %.2f seconds (%.2f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
+    printf("Total training time: %.8f seconds (%.4f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
 
     // Simple text generation demo to inspect model behavior post-training
+    auto gen_start = std::chrono::high_resolution_clock::now();
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
     if (corpus_len > 0) {
@@ -184,6 +185,9 @@ int main() {
     } else {
         printf("Skipping text generation; tokenizer has no tokens.\n");
     }
+    auto gen_end = std::chrono::high_resolution_clock::now();
+    double gen_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(gen_end - gen_start).count();
+    printf("Text generation time: %.8f seconds\n", gen_seconds);
     
     // Free resources
     gpt_clear_activations(&gpt);
