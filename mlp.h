@@ -22,18 +22,6 @@ typedef struct {
 } MLP;
 
 
-
-/*
-  Simple helper to fill Linear weights & bias with constants.
-  This is just for testing; later - load real weights or random init.
-*/
-static inline void linear_fill_constant(Linear* layer, float w_val, float b_val) {
-    tensor_fill(&layer->weight, w_val);
-    if (layer->use_bias) {
-        tensor_fill(&layer->bias, b_val);
-    }
-}
-
 /*
   Initialize the MLP.
 
@@ -53,11 +41,6 @@ static inline void mlp_init(MLP* mlp, int n_embd, float dropout_p) {
 
     mlp->dropout_p = dropout_p;
 
-    // ---- Debug initialization so it's not all zeros ----
-    // For now: c_fc weights = 0.1, bias = 0.01
-    //          c_proj weights = 0.05, bias = 0.0
-    linear_fill_constant(&mlp->c_fc, 0.1f, 0.01f);
-    linear_fill_constant(&mlp->c_proj, 0.05f, 0.0f);
 }
 
 
