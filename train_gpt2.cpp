@@ -82,8 +82,8 @@ int main() {
     
     // Hyperparameters (aligned with the GPT-2 config)
     int block_size = 16;   // n_ctx / n_positions
-    int n_layer = 1;
-    int n_head = 2;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
+    int n_layer = 4;
+    int n_head = 4;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
     int n_embd = 64;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
