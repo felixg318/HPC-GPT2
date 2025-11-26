@@ -41,6 +41,12 @@ typedef struct {
     int capacity;
 } TensorTracker;
 
+typedef struct {
+    Tensor** data;
+    int count;
+    int capacity;
+} TensorPtrArray;
+
 static inline void tensor_free(Tensor* t);
 
 static inline void tensor_tracker_init(TensorTracker* tracker) {
@@ -108,6 +114,37 @@ static inline void tensor_tracker_release(TensorTracker* tracker, Tensor* t) {
         tensor_free(t);
         free(t);
     }
+}
+
+static inline void tensor_ptr_array_init(TensorPtrArray* arr) {
+    arr->data = NULL;
+    arr->count = 0;
+    arr->capacity = 0;
+}
+
+static inline void tensor_ptr_array_free(TensorPtrArray* arr) {
+    if (arr->data != NULL) {
+        free(arr->data);
+        arr->data = NULL;
+    }
+    arr->count = 0;
+    arr->capacity = 0;
+}
+
+static inline int tensor_ptr_array_push(TensorPtrArray* arr, Tensor* t) {
+    if (t == NULL) return 1;
+    if (arr->count == arr->capacity) {
+        int new_capacity = (arr->capacity == 0) ? 64 : arr->capacity * 2;
+        Tensor** new_data = (Tensor**)realloc(arr->data, new_capacity * sizeof(Tensor*));
+        if (new_data == NULL) {
+            printf("tensor_ptr_array_push: ERROR: realloc failed\n");
+            return 0;
+        }
+        arr->data = new_data;
+        arr->capacity = new_capacity;
+    }
+    arr->data[arr->count++] = t;
+    return 1;
 }
 
 static inline void tensor_set_inputs(Tensor* t, Tensor** inputs, int count) {

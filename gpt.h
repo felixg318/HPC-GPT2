@@ -106,6 +106,16 @@ static inline void gpt_clear_activations(GPT* g) {
     tensor_tracker_reset(&g->activations);
 }
 
+static inline void gpt_collect_params(GPT* g, TensorPtrArray* list) {
+    embedding_collect_params(&g->wte, list);
+    embedding_collect_params(&g->wpe, list);
+    for (int i = 0; i < g->n_layer; ++i) {
+        block_collect_params(&g->blocks[i], list);
+    }
+    layernorm_collect_params(&g->ln_f, list);
+    linear_collect_params(&g->lm_head, list);
+}
+
 
 /*
    Core forward that produces logits only (no loss).
@@ -194,4 +204,3 @@ static inline void gpt_forward_with_loss(GPT* g,
     // Then compute CE loss over all positions
     cross_entropy_loss_3d(logits_out, targets, B, T, loss_out);
 }
-

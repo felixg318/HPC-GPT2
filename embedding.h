@@ -59,6 +59,10 @@ static inline void embedding_free(Embedding* emb) {
     tensor_free(&emb->weight);
 }
 
+static inline void embedding_collect_params(Embedding* emb, TensorPtrArray* list) {
+    tensor_ptr_array_push(list, &emb->weight);
+}
+
 // Backward function for 2D embedding
 static inline void embedding_backward_2d(Tensor* t) {
     EmbeddingContext* ctx = (EmbeddingContext*)t->_ctx;

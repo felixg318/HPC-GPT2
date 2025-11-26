@@ -62,6 +62,13 @@ static inline void block_free(Block* blk) {
     mlp_free(&blk->mlp);
 }
 
+static inline void block_collect_params(Block* blk, TensorPtrArray* list) {
+    layernorm_collect_params(&blk->ln1, list);
+    layernorm_collect_params(&blk->ln2, list);
+    mha_collect_params(&blk->mha, list);
+    mlp_collect_params(&blk->mlp, list);
+}
+
 
 /*
   Forward pass through one Transformer block.

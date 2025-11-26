@@ -54,6 +54,11 @@ static inline void layernorm_free(LayerNorm* ln) {
     tensor_free(&ln->beta);
 }
 
+static inline void layernorm_collect_params(LayerNorm* ln, TensorPtrArray* list) {
+    tensor_ptr_array_push(list, &ln->gamma);
+    tensor_ptr_array_push(list, &ln->beta);
+}
+
 // Backward function for 2D layernorm
 static inline void layernorm_backward_2d(Tensor* t) {
     LayerNormContext* ctx = (LayerNormContext*)t->_ctx;

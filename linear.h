@@ -69,6 +69,13 @@ static inline void linear_free(Linear* lin) {
     }
 }
 
+static inline void linear_collect_params(Linear* lin, TensorPtrArray* list) {
+    tensor_ptr_array_push(list, &lin->weight);
+    if (lin->use_bias && lin->bias.data != NULL) {
+        tensor_ptr_array_push(list, &lin->bias);
+    }
+}
+
 // Backward function for 2D linear layer
 static inline void linear_backward_2d(Tensor* t) {
     LinearContext* ctx = (LinearContext*)t->_ctx;

@@ -90,7 +90,7 @@ int main() {
     int batch_size = 1;
     int seq_len = block_size;
     float lr = 1e-3f;
-    int epochs = 1;
+    int epochs = 20;
     float clip_grad_norm_val = 1.0f;
 
     size_t min_tokens = (size_t)batch_size * seq_len + 1;
@@ -101,37 +101,12 @@ int main() {
     GPT gpt;
     gpt_init(&gpt, vocab_size, block_size, n_layer, n_head, n_embd, dropout_p);
     
-    // Initialize optimizer
+    TensorPtrArray param_list;
+    tensor_ptr_array_init(&param_list);
+    gpt_collect_params(&gpt, &param_list);
+
     AdamOptimizer optimizer;
-    // We need to collect all parameters first.
-    // This is a simplification. A real implementation would have a more robust way to get all parameters.
-    int num_params = 0;
-    Tensor** params = (Tensor**)malloc(1000 * sizeof(Tensor*)); // Assuming max 1000 parameter tensors
-    
-    params[num_params++] = &gpt.wte.weight;
-    params[num_params++] = &gpt.wpe.weight;
-    for (int i = 0; i < n_layer; ++i) {
-        params[num_params++] = &gpt.blocks[i].ln1.gamma;
-        params[num_params++] = &gpt.blocks[i].ln1.beta;
-        params[num_params++] = &gpt.blocks[i].ln2.gamma;
-        params[num_params++] = &gpt.blocks[i].ln2.beta;
-        for (int h = 0; h < n_head; ++h) {
-            params[num_params++] = &gpt.blocks[i].mha.heads[h].query.weight;
-            params[num_params++] = &gpt.blocks[i].mha.heads[h].key.weight;
-            params[num_params++] = &gpt.blocks[i].mha.heads[h].value.weight;
-        }
-        params[num_params++] = &gpt.blocks[i].mha.proj.weight;
-        params[num_params++] = &gpt.blocks[i].mha.proj.bias;
-        params[num_params++] = &gpt.blocks[i].mlp.c_fc.weight;
-        params[num_params++] = &gpt.blocks[i].mlp.c_fc.bias;
-        params[num_params++] = &gpt.blocks[i].mlp.c_proj.weight;
-        params[num_params++] = &gpt.blocks[i].mlp.c_proj.bias;
-    }
-    params[num_params++] = &gpt.ln_f.gamma;
-    params[num_params++] = &gpt.ln_f.beta;
-    params[num_params++] = &gpt.lm_head.weight;
-    
-    adam_init(&optimizer, params, num_params, lr, 0.9f, 0.95f, 1e-8f);
+    adam_init(&optimizer, param_list.data, param_list.count, lr, 0.9f, 0.95f, 1e-8f);
     optimizer.lr_scheduler = linear_lr_decay;
     
     // Initialize dataloader
@@ -196,7 +171,7 @@ int main() {
     dataloader_free(&dl);
     dataloader_free(&dl);
     tokenizer_free(&tokenizer);
-    free(params);
+    tensor_ptr_array_free(&param_list);
     
     return 0;
 }

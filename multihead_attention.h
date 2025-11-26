@@ -122,6 +122,15 @@ static inline void mha_free(MultiHeadAttention* mha) {
     linear_free(&mha->proj);
 }
 
+static inline void mha_collect_params(MultiHeadAttention* mha, TensorPtrArray* list) {
+    if (mha->heads != NULL) {
+        for (int i = 0; i < mha->n_heads; ++i) {
+            head_collect_params(&mha->heads[i], list);
+        }
+    }
+    linear_collect_params(&mha->proj, list);
+}
+
 /*
   Forward pass:
 

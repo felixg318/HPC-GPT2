@@ -56,6 +56,12 @@ static inline void head_free(Head* h) {
     linear_free(&h->value);
 }
 
+static inline void head_collect_params(Head* h, TensorPtrArray* list) {
+    linear_collect_params(&h->key, list);
+    linear_collect_params(&h->query, list);
+    linear_collect_params(&h->value, list);
+}
+
 /*
   Forward pass for one attention head.
 

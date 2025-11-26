@@ -69,6 +69,11 @@ static inline void mlp_free(MLP* mlp) {
     linear_free(&mlp->c_proj);
 }
 
+static inline void mlp_collect_params(MLP* mlp, TensorPtrArray* list) {
+    linear_collect_params(&mlp->c_fc, list);
+    linear_collect_params(&mlp->c_proj, list);
+}
+
 /*
   Forward pass through the MLP.
 
