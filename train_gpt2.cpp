@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <chrono>
+#include "checkpoint.h"
 #include "gpt.h"
 #include "dataloader.h"
 #include "adam.h"
@@ -147,6 +148,13 @@ int main() {
     double train_ms = std::chrono::duration_cast<std::chrono::milliseconds>(train_end - train_start).count();
     printf("Total training time: %.8f seconds (%.4f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
 
+    // Save trained weights for later inference
+    if (save_weights("trained_weights.bin", &param_list)) {
+        printf("Saved trained weights to trained_weights.bin\n");
+    } else {
+        printf("Failed to save trained weights.\n");
+    }
+
     // Simple text generation demo to inspect model behavior post-training
     auto gen_start = std::chrono::high_resolution_clock::now();
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
@@ -168,7 +176,6 @@ int main() {
     gpt_clear_activations(&gpt);
     gpt_free(&gpt);
     adam_free(&optimizer);
-    dataloader_free(&dl);
     dataloader_free(&dl);
     tokenizer_free(&tokenizer);
     tensor_ptr_array_free(&param_list);
