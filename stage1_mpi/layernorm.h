@@ -186,12 +186,14 @@ static inline void layernorm_forward_2d(LayerNorm* ln, const Tensor* x, Tensor* 
     tensor_init(y, 2, y_shape);
 
     for (int n = 0; n < N; ++n) {
+        // 1. Compute mean
         float mean = 0.0f;
         for (int c = 0; c < C; ++c) {
             mean += tensor_get2(x, n, c);
         }
         mean /= C;
 
+        // 2. Compute variance
         float var = 0.0f;
         for (int c = 0; c < C; ++c) {
             float diff = tensor_get2(x, n, c) - mean;
@@ -199,11 +201,14 @@ static inline void layernorm_forward_2d(LayerNorm* ln, const Tensor* x, Tensor* 
         }
         var /= C;
 
+        // 3. Normalize + scale + shift
         float inv_std = 1.0f / sqrtf(var + ln->eps);
+
         for (int c = 0; c < C; ++c) {
             float xc = tensor_get2(x, n, c);
             float g  = tensor_get1(&ln->gamma, c);
             float b  = tensor_get1(&ln->beta,  c);
+
             float norm = (xc - mean) * inv_std;
             tensor_set2(y, n, c, norm * g + b);
         }
@@ -241,12 +246,13 @@ static inline void layernorm_forward_3d(LayerNorm* ln, const Tensor* x, Tensor* 
 
     for (int b = 0; b < B; ++b) {
         for (int t = 0; t < T; ++t) {
+            // 1. mean
             float mean = 0.0f;
-            for (int c = 0; c < C; ++c) {
+            for (int c = 0; c < C; ++c)
                 mean += tensor_get3(x, b, t, c);
-            }
             mean /= C;
 
+            // 2. variance
             float var = 0.0f;
             for (int c = 0; c < C; ++c) {
                 float diff = tensor_get3(x, b, t, c) - mean;
@@ -255,10 +261,13 @@ static inline void layernorm_forward_3d(LayerNorm* ln, const Tensor* x, Tensor* 
             var /= C;
 
             float inv_std = 1.0f / sqrtf(var + ln->eps);
+
+            // 3. normalize
             for (int c = 0; c < C; ++c) {
                 float xc = tensor_get3(x, b, t, c);
                 float g  = tensor_get1(&ln->gamma, c);
                 float bb = tensor_get1(&ln->beta,  c);
+
                 float norm = (xc - mean) * inv_std;
                 tensor_set3(y, b, t, c, norm * g + bb);
             }

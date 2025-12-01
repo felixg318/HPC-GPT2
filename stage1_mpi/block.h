@@ -53,7 +53,7 @@ static inline void block_init(Block* blk,
 
 static inline void block_set_distributed(Block* blk, int rank, int world_size) {
     mha_set_distributed(&blk->mha, rank, world_size);
-    layernorm_set_distributed(rank, world_size);
+    mlp_set_distributed(&blk->mlp);
 }
 
 

@@ -61,32 +61,6 @@ static inline void matmul_backward(Tensor* t) {
                 }
             }
         }
-    } else if (a->ndim == 2 && b->ndim == 2 && c->ndim == 2 && a->shape[1] == b->shape[0]) {
-        int N = a->shape[0];
-        int C1 = a->shape[1];
-        int C2 = b->shape[1];
-
-        // grad_a = grad_c @ b^T
-        for (int n = 0; n < N; ++n) {
-            for (int c1 = 0; c1 < C1; ++c1) {
-                float grad_sum = 0.0f;
-                for (int c2 = 0; c2 < C2; ++c2) {
-                    grad_sum += c->grad[tensor_index2(c, n, c2)] * tensor_get2(b, c1, c2);
-                }
-                a->grad[tensor_index2(a, n, c1)] += grad_sum;
-            }
-        }
-
-        // grad_b = a^T @ grad_c
-        for (int c1 = 0; c1 < C1; ++c1) {
-            for (int c2 = 0; c2 < C2; ++c2) {
-                float grad_sum = 0.0f;
-                for (int n = 0; n < N; ++n) {
-                    grad_sum += tensor_get2(a, n, c1) * c->grad[tensor_index2(c, n, c2)];
-                }
-                b->grad[tensor_index2(b, c1, c2)] += grad_sum;
-            }
-        }
     } else {
         printf("matmul_backward: ERROR: unsupported shapes\n");
     }

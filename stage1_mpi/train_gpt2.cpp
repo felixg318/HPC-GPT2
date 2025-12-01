@@ -279,35 +279,40 @@ int main(int argc, char** argv) {
         printf("Total training time: %.8f seconds (%.4f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
     }
 
-    // Parallel text generation: split prompts across ranks to avoid serial bottleneck
+    // Parallel text generation: each rank generates its own prompt slice
     MPI_Barrier(MPI_COMM_WORLD);
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
-    double gen_ms = 0.0;
+    double gen_ms_local = 0.0;
     if (corpus_len > 0) {
         int prompt_len = seq_len;
         if (prompt_len > corpus_len) prompt_len = corpus_len;
         if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
         int max_new_tokens = 30;
 
-        // One prompt per rank (total = world_size). Each rank generates its own slice.
-        int total_prompts = world_size;
+        int start = (rank * prompt_len) % (corpus_len - prompt_len + 1);
+        const int* prompt_ptr = corpus_tokens + start;
+
         auto gen_start = std::chrono::high_resolution_clock::now();
-        for (int p = rank; p < total_prompts; p += world_size) {
-            int start = (p * prompt_len) % (corpus_len - prompt_len + 1);
-            const int* prompt_ptr = corpus_tokens + start;
-            int allow_print = (rank == 0 && p == 0); // only rank 0 prints its first prompt
-            generate_sample_text(&gpt, &tokenizer, prompt_ptr, prompt_len, max_new_tokens, allow_print);
-        }
+        generate_sample_text(&gpt, &tokenizer, prompt_ptr, prompt_len, max_new_tokens, rank == 0);
         auto gen_end = std::chrono::high_resolution_clock::now();
-        gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(gen_end - gen_start).count();
+        gen_ms_local = std::chrono::duration_cast<std::chrono::milliseconds>(gen_end - gen_start).count();
     }
-    double max_gen_ms = 0.0;
-    MPI_Reduce(&gen_ms, &max_gen_ms, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+    double gen_ms_max = 0.0;
+    double gen_ms_min = 0.0;
+    double gen_ms_sum = 0.0;
+    MPI_Reduce(&gen_ms_local, &gen_ms_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&gen_ms_local, &gen_ms_min, 1, MPI_DOUBLE, MPI_MIN, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&gen_ms_local, &gen_ms_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+
     if (rank == 0) {
         if (corpus_len > 0) {
-            printf("Parallel text generation: prompts=%d, max time across ranks=%.8f seconds\n",
-                   world_size, max_gen_ms / 1000.0);
+            double gen_ms_avg = gen_ms_sum / (double)world_size;
+            printf("Parallel text generation across %d ranks:\n", world_size);
+            printf("  rank0 sample time: %.8f seconds\n", gen_ms_local / 1000.0);
+            printf("  min/avg/max time: %.8f / %.8f / %.8f seconds\n",
+                   gen_ms_min / 1000.0, gen_ms_avg / 1000.0, gen_ms_max / 1000.0);
         } else {
             printf("Skipping text generation; tokenizer has no tokens.\n");
         }
