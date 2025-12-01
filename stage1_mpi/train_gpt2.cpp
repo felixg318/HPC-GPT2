@@ -92,11 +92,34 @@ int main(int argc, char** argv) {
     int n_embd = 192;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 4;
+    int global_batch_size = 4;
     int seq_len = block_size;
     float lr = 3e-4f;
     int epochs = 8;
     float clip_grad_norm_val = 1.0f;
+    if (world_size <= 0) {
+        if (rank == 0) {
+            printf("Invalid world size %d\n", world_size);
+        }
+        MPI_Finalize();
+        return 1;
+    }
+    if (global_batch_size % world_size != 0) {
+        if (rank == 0) {
+            printf("batch_size (%d) must be divisible by world_size (%d) for consistent data-parallel tokens.\n",
+                   global_batch_size, world_size);
+        }
+        MPI_Finalize();
+        return 1;
+    }
+    int batch_size = global_batch_size / world_size;
+    if (batch_size <= 0) {
+        if (rank == 0) {
+            printf("Per-rank batch_size became zero. Increase global_batch_size.\n");
+        }
+        MPI_Finalize();
+        return 1;
+    }
     
     // Tokenize training corpus
     Tokenizer tokenizer;
@@ -256,29 +279,41 @@ int main(int argc, char** argv) {
         printf("Total training time: %.8f seconds (%.4f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
     }
 
-    // Simple text generation demo to inspect model behavior post-training
+    // Parallel text generation: split prompts across ranks to avoid serial bottleneck
     MPI_Barrier(MPI_COMM_WORLD);
-    auto gen_start = std::chrono::high_resolution_clock::now();
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
+    double gen_ms = 0.0;
     if (corpus_len > 0) {
         int prompt_len = seq_len;
         if (prompt_len > corpus_len) prompt_len = corpus_len;
         if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
         int max_new_tokens = 30;
-        generate_sample_text(&gpt, &tokenizer, corpus_tokens, prompt_len, max_new_tokens, rank == 0);
-    } else {
-        if (rank == 0) {
+
+        // One prompt per rank (total = world_size). Each rank generates its own slice.
+        int total_prompts = world_size;
+        auto gen_start = std::chrono::high_resolution_clock::now();
+        for (int p = rank; p < total_prompts; p += world_size) {
+            int start = (p * prompt_len) % (corpus_len - prompt_len + 1);
+            const int* prompt_ptr = corpus_tokens + start;
+            int allow_print = (rank == 0 && p == 0); // only rank 0 prints its first prompt
+            generate_sample_text(&gpt, &tokenizer, prompt_ptr, prompt_len, max_new_tokens, allow_print);
+        }
+        auto gen_end = std::chrono::high_resolution_clock::now();
+        gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(gen_end - gen_start).count();
+    }
+    double max_gen_ms = 0.0;
+    MPI_Reduce(&gen_ms, &max_gen_ms, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    if (rank == 0) {
+        if (corpus_len > 0) {
+            printf("Parallel text generation: prompts=%d, max time across ranks=%.8f seconds\n",
+                   world_size, max_gen_ms / 1000.0);
+        } else {
             printf("Skipping text generation; tokenizer has no tokens.\n");
         }
     }
     MPI_Barrier(MPI_COMM_WORLD);
-    auto gen_end = std::chrono::high_resolution_clock::now();
-    double gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(gen_end - gen_start).count();
-    if (rank == 0) {
-        printf("Text generation time: %.8f seconds\n", gen_ms / 1000.0);
-    }
-    
+
     // Free resources
     gpt_clear_activations(&gpt);
     gpt_free(&gpt);
