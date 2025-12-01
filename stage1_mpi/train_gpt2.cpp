@@ -159,6 +159,23 @@ int main(int argc, char** argv) {
     auto train_start = std::chrono::high_resolution_clock::now();
     const float inv_world = (world_size > 0) ? (1.0f / (float)world_size) : 1.0f;
 
+    // Precompute flattened grad buffer for a single Allreduce per step.
+    int total_grad_elems = 0;
+    for (int i = 0; i < param_list.count; ++i) {
+        total_grad_elems += tensor_numel(param_list.data[i]);
+    }
+    float* grad_buffer = (float*)malloc((size_t)total_grad_elems * sizeof(float));
+    if (grad_buffer == NULL) {
+        if (rank == 0) printf("Failed to allocate grad_buffer\n");
+        dataloader_free(&dl);
+        tokenizer_free(&tokenizer);
+        gpt_free(&gpt);
+        adam_free(&optimizer);
+        tensor_ptr_array_free(&param_list);
+        MPI_Finalize();
+        return 1;
+    }
+
     // Training loop
     for (int epoch = 0; epoch < epochs; ++epoch) {
         int* inputs;
@@ -178,14 +195,28 @@ int main(int argc, char** argv) {
         gpt_clear_activations(&gpt);
 
         if (world_size > 1) {
+            // Pack grads into contiguous buffer for one Allreduce.
+            int offset = 0;
             for (int i = 0; i < param_list.count; ++i) {
                 Tensor* param = param_list.data[i];
                 int n = tensor_numel(param);
                 if (n <= 0) continue;
-                MPI_Allreduce(MPI_IN_PLACE, param->grad, n, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                 for (int j = 0; j < n; ++j) {
-                    param->grad[j] *= inv_world;
+                    grad_buffer[offset + j] = param->grad[j];
                 }
+                offset += n;
+            }
+            MPI_Allreduce(MPI_IN_PLACE, grad_buffer, total_grad_elems, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+            // Unpack averaged grads back into params.
+            offset = 0;
+            for (int i = 0; i < param_list.count; ++i) {
+                Tensor* param = param_list.data[i];
+                int n = tensor_numel(param);
+                if (n <= 0) continue;
+                for (int j = 0; j < n; ++j) {
+                    param->grad[j] = grad_buffer[offset + j] * inv_world;
+                }
+                offset += n;
             }
         }
         
@@ -249,6 +280,7 @@ int main(int argc, char** argv) {
     dataloader_free(&dl);
     tokenizer_free(&tokenizer);
     tensor_ptr_array_free(&param_list);
+    free(grad_buffer);
     MPI_Finalize();
     
     return 0;

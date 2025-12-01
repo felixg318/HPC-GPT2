@@ -3,29 +3,11 @@
 
 #pragma once
 
-#include <mpi.h>
 #include "tensor.h"
 
-static int matmul_rank = 0;
-static int matmul_world_size = 1;
-
 static inline void matmul_set_distributed(int rank, int world_size) {
-    matmul_rank = rank;
-    matmul_world_size = (world_size > 0) ? world_size : 1;
-}
-
-static inline void matmul_column_range(int total_cols, int* start, int* end) {
-    if (matmul_world_size <= 1 || total_cols <= 0) {
-        *start = 0;
-        *end = total_cols;
-        return;
-    }
-    int base = total_cols / matmul_world_size;
-    int extra = total_cols % matmul_world_size;
-    int local = base + (matmul_rank < extra ? 1 : 0);
-    int offset = matmul_rank * base + (matmul_rank < extra ? matmul_rank : extra);
-    *start = offset;
-    *end = offset + local;
+    (void)rank;
+    (void)world_size;
 }
 
 // Context for the matmul operation
@@ -79,6 +61,32 @@ static inline void matmul_backward(Tensor* t) {
                 }
             }
         }
+    } else if (a->ndim == 2 && b->ndim == 2 && c->ndim == 2 && a->shape[1] == b->shape[0]) {
+        int N = a->shape[0];
+        int C1 = a->shape[1];
+        int C2 = b->shape[1];
+
+        // grad_a = grad_c @ b^T
+        for (int n = 0; n < N; ++n) {
+            for (int c1 = 0; c1 < C1; ++c1) {
+                float grad_sum = 0.0f;
+                for (int c2 = 0; c2 < C2; ++c2) {
+                    grad_sum += c->grad[tensor_index2(c, n, c2)] * tensor_get2(b, c1, c2);
+                }
+                a->grad[tensor_index2(a, n, c1)] += grad_sum;
+            }
+        }
+
+        // grad_b = a^T @ grad_c
+        for (int c1 = 0; c1 < C1; ++c1) {
+            for (int c2 = 0; c2 < C2; ++c2) {
+                float grad_sum = 0.0f;
+                for (int n = 0; n < N; ++n) {
+                    grad_sum += tensor_get2(a, n, c1) * c->grad[tensor_index2(c, n, c2)];
+                }
+                b->grad[tensor_index2(b, c1, c2)] += grad_sum;
+            }
+        }
     } else {
         printf("matmul_backward: ERROR: unsupported shapes\n");
     }
@@ -102,14 +110,10 @@ static inline void matmul_forward(const Tensor* a, const Tensor* b, Tensor* out)
 
         int out_shape[3] = {B, T, C2};
         tensor_init(out, 3, out_shape);
-        tensor_zero(out);
-
-        int col_start, col_end;
-        matmul_column_range(C2, &col_start, &col_end);
 
         for (int b_ = 0; b_ < B; ++b_) {
             for (int t_ = 0; t_ < T; ++t_) {
-                for (int c2_ = col_start; c2_ < col_end; ++c2_) {
+                for (int c2_ = 0; c2_ < C2; ++c2_) {
                     float sum = 0.0f;
                     for (int c1_ = 0; c1_ < C1; ++c1_) {
                         sum += tensor_get3(a, b_, t_, c1_) * tensor_get3(b, b_, c1_, c2_);
@@ -117,15 +121,6 @@ static inline void matmul_forward(const Tensor* a, const Tensor* b, Tensor* out)
                     tensor_set3(out, b_, t_, c2_, sum);
                 }
             }
-        }
-
-        if (matmul_world_size > 1) {
-            MPI_Allreduce(MPI_IN_PLACE,
-                          out->data,
-                          tensor_numel(out),
-                          MPI_FLOAT,
-                          MPI_SUM,
-                          MPI_COMM_WORLD);
         }
     } else if (a->ndim == 2 && b->ndim == 2 && a->shape[1] == b->shape[0]) {
         // Matmul for 2D tensors (N, C1) @ (C1, C2) -> (N, C2)
@@ -135,28 +130,15 @@ static inline void matmul_forward(const Tensor* a, const Tensor* b, Tensor* out)
 
         int out_shape[2] = {N, C2};
         tensor_init(out, 2, out_shape);
-        tensor_zero(out);
-
-        int col_start, col_end;
-        matmul_column_range(C2, &col_start, &col_end);
 
         for (int n = 0; n < N; ++n) {
-            for (int c2 = col_start; c2 < col_end; ++c2) {
+            for (int c2 = 0; c2 < C2; ++c2) {
                 float sum = 0.0f;
                 for (int c1 = 0; c1 < C1; ++c1) {
                     sum += tensor_get2(a, n, c1) * tensor_get2(b, c1, c2);
                 }
                 tensor_set2(out, n, c2, sum);
             }
-        }
-
-        if (matmul_world_size > 1) {
-            MPI_Allreduce(MPI_IN_PLACE,
-                          out->data,
-                          tensor_numel(out),
-                          MPI_FLOAT,
-                          MPI_SUM,
-                          MPI_COMM_WORLD);
         }
     }
     else {

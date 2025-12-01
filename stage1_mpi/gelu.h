@@ -4,29 +4,11 @@
 #pragma once
 
 #include <math.h>   // for tanh, sqrt, powf
-#include <mpi.h>
 #include "tensor.h"
 
-static int gelu_rank = 0;
-static int gelu_world_size = 1;
-
 static inline void gelu_set_distributed(int rank, int world_size) {
-    gelu_rank = rank;
-    gelu_world_size = (world_size > 0) ? world_size : 1;
-}
-
-static inline void gelu_index_range(int total, int* start, int* end) {
-    if (gelu_world_size <= 1 || total <= 0) {
-        *start = 0;
-        *end = total;
-        return;
-    }
-    int base = total / gelu_world_size;
-    int extra = total % gelu_world_size;
-    int local = base + (gelu_rank < extra ? 1 : 0);
-    int offset = gelu_rank * base + (gelu_rank < extra ? gelu_rank : extra);
-    *start = offset;
-    *end = offset + local;
+    (void)rank;
+    (void)world_size;
 }
 
 // Context for the GELU operation
@@ -59,9 +41,7 @@ static inline void gelu_backward(Tensor* t) {
     const float SQRT_2_OVER_PI = 0.7978845608028654f;
 
     int n = tensor_numel(x);
-    int start, end;
-    gelu_index_range(n, &start, &end);
-    for (int i = start; i < end; ++i) {
+    for (int i = 0; i < n; ++i) {
         float x_val = x->data[i];
         float x2 = x_val * x_val;
         float x3 = x2 * x_val;
@@ -73,9 +53,6 @@ static inline void gelu_backward(Tensor* t) {
         
         float grad_gelu = 0.5f * (1.0f + t) + 0.5f * x_val * sech_inner_2 * inner_derivative;
         x->grad[i] += y->grad[i] * grad_gelu;
-    }
-    if (gelu_world_size > 1) {
-        MPI_Allreduce(MPI_IN_PLACE, x->grad, n, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     }
 
     free(ctx);
@@ -89,14 +66,9 @@ static inline void gelu_backward(Tensor* t) {
 */
 static inline void gelu_inplace(Tensor* t) {
     int n = tensor_numel(t);
-    int start, end;
-    gelu_index_range(n, &start, &end);
-    for (int i = start; i < end; ++i) {
+    for (int i = 0; i < n; ++i) {
         float x = t->data[i];
         t->data[i] = gelu_scalar(x);
-    }
-    if (gelu_world_size > 1) {
-        MPI_Allreduce(MPI_IN_PLACE, t->data, n, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     }
 }
 
@@ -118,15 +90,9 @@ static inline void gelu_tensor(const Tensor* x, Tensor* y) {
     tensor_init(y, x->ndim, shape);
 
     int n = tensor_numel(x);
-    tensor_zero(y);
-    int start, end;
-    gelu_index_range(n, &start, &end);
-    for (int i = start; i < end; ++i) {
+    for (int i = 0; i < n; ++i) {
         float v = x->data[i];
         y->data[i] = gelu_scalar(v);
-    }
-    if (gelu_world_size > 1) {
-        MPI_Allreduce(MPI_IN_PLACE, y->data, n, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     }
     
     // Create context for autograd
