@@ -116,12 +116,9 @@ int main(int argc, char** argv) {
     tensor_ptr_array_init(&param_list);
     gpt_collect_params(&gpt, &param_list);
 
-    int load_ok = 1;
-    if (rank == 0) {
-        load_ok = load_weights(weights_path, &param_list);
-        if (!load_ok) {
-            printf("Failed to load weights from %s\n", weights_path);
-        }
+    int load_ok = load_weights(weights_path, &param_list);
+    if (rank == 0 && !load_ok) {
+        printf("Failed to load weights from %s\n", weights_path);
     }
     MPI_Bcast(&load_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
     if (!load_ok) {
@@ -141,6 +138,8 @@ int main(int argc, char** argv) {
 
     auto infer_start = std::chrono::high_resolution_clock::now();
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    double gen_ms_local = 0.0;
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
     if (corpus_len > 0) {
@@ -148,17 +147,24 @@ int main(int argc, char** argv) {
         if (prompt_len > corpus_len) prompt_len = corpus_len;
         if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
         int max_new_tokens = 30;
+        auto gen_start = std::chrono::high_resolution_clock::now();
         generate_sample_text(&gpt, &tokenizer, corpus_tokens, prompt_len, max_new_tokens, rank == 0);
-    } else {
-        if (rank == 0) {
-            printf("Tokenizer has no tokens; nothing to generate.\n");
-        }
+        auto gen_end = std::chrono::high_resolution_clock::now();
+        gen_ms_local = std::chrono::duration_cast<std::chrono::milliseconds>(gen_end - gen_start).count();
+    } else if (rank == 0) {
+        printf("Tokenizer has no tokens; nothing to generate.\n");
     }
+
+    double gen_ms_max = 0.0;
+    MPI_Reduce(&gen_ms_local, &gen_ms_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
     auto infer_end = std::chrono::high_resolution_clock::now();
     double infer_ms = std::chrono::duration_cast<std::chrono::milliseconds>(infer_end - infer_start).count();
     if (rank == 0) {
         printf("Inference time: %.4f seconds (%.2f ms)\n", infer_ms / 1000.0, infer_ms);
+        if (corpus_len > 0) {
+            printf("Text generation time: %.8f seconds\n", gen_ms_max / 1000.0);
+        }
     }
 
     gpt_clear_activations(&gpt);
