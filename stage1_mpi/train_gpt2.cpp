@@ -86,16 +86,16 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     // Hyperparameters 
-    int block_size = 16;   // n_ctx / n_positions
-    int n_layer = 4;
-    int n_head = 4;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
-    int n_embd = 64;
+    int block_size = 48;   // n_ctx / n_positions
+    int n_layer = 8;
+    int n_head = 12;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
+    int n_embd = 192;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 1;
+    int batch_size = 4;
     int seq_len = block_size;
-    float lr = 1e-3f;
-    int epochs = 20;
+    float lr = 3e-4f;
+    int epochs = 8;
     float clip_grad_norm_val = 1.0f;
     
     // Tokenize training corpus
@@ -157,6 +157,12 @@ int main(int argc, char** argv) {
 
     MPI_Barrier(MPI_COMM_WORLD);
     auto train_start = std::chrono::high_resolution_clock::now();
+    long long tokens_per_epoch = (long long)batch_size * (long long)seq_len * (long long)world_size;
+    long long total_tokens = tokens_per_epoch * (long long)epochs;
+    if (rank == 0) {
+        printf("Training tokens (MPI): per epoch=%lld, total=%lld (world_size=%d)\n",
+               tokens_per_epoch, total_tokens, world_size);
+    }
     const float inv_world = (world_size > 0) ? (1.0f / (float)world_size) : 1.0f;
 
     // Precompute flattened grad buffer for a single Allreduce per step.

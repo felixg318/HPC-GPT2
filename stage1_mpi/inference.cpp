@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <chrono>
 #include <mpi.h>
 #include "gpt.h"
 #include "checkpoint.h"
@@ -71,12 +72,12 @@ int main(int argc, char** argv) {
     const char* weights_path = (argc > 1) ? argv[1] : "trained_weights.bin";
 
     // Hyperparameters must match training
-    int block_size = 16;
-    int n_layer = 4;
-    int n_head = 4;
-    int n_embd = 64;
+    int block_size = 48;
+    int n_layer = 8;
+    int n_head = 12;
+    int n_embd = 192;
     float dropout_p = 0.1f;
-    int batch_size = 1;
+    int batch_size = 8;
     int seq_len = block_size;
 
     // Build tokenizer on rank 0 and broadcast to others
@@ -138,6 +139,8 @@ int main(int argc, char** argv) {
         MPI_Bcast(param->data, n, MPI_FLOAT, 0, MPI_COMM_WORLD);
     }
 
+    auto infer_start = std::chrono::high_resolution_clock::now();
+
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
     if (corpus_len > 0) {
@@ -150,6 +153,12 @@ int main(int argc, char** argv) {
         if (rank == 0) {
             printf("Tokenizer has no tokens; nothing to generate.\n");
         }
+    }
+
+    auto infer_end = std::chrono::high_resolution_clock::now();
+    double infer_ms = std::chrono::duration_cast<std::chrono::milliseconds>(infer_end - infer_start).count();
+    if (rank == 0) {
+        printf("Inference time: %.4f seconds (%.2f ms)\n", infer_ms / 1000.0, infer_ms);
     }
 
     gpt_clear_activations(&gpt);

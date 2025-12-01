@@ -82,16 +82,16 @@ int main() {
     }
     
     // Hyperparameters (aligned with the GPT-2 config)
-    int block_size = 16;   // n_ctx / n_positions
-    int n_layer = 4;
-    int n_head = 4;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
-    int n_embd = 64;
+    int block_size = 48;   // n_ctx / n_positions
+    int n_layer = 8;
+    int n_head = 12;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
+    int n_embd = 192;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 1;
+    int batch_size = 4;
     int seq_len = block_size;
-    float lr = 1e-3f;
-    int epochs = 20;
+    float lr = 3e-4f;
+    int epochs = 8;
     float clip_grad_norm_val = 1.0f;
 
     size_t min_tokens = (size_t)batch_size * seq_len + 1;
@@ -115,6 +115,9 @@ int main() {
     dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len);
 
     auto train_start = std::chrono::high_resolution_clock::now();
+    long long tokens_per_epoch = (long long)batch_size * (long long)seq_len;
+    long long total_tokens = tokens_per_epoch * (long long)epochs;
+    printf("Training tokens (serial): per epoch=%lld, total=%lld\n", tokens_per_epoch, total_tokens);
 
     // Training loop
     for (int epoch = 0; epoch < epochs; ++epoch) {
