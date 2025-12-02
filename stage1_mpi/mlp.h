@@ -44,8 +44,7 @@ static inline void mlp_init(MLP* mlp, int n_embd, float dropout_p) {
 }
 
 static inline void mlp_set_distributed(MLP* mlp) {
-    linear_set_distributed(&mlp->c_fc, "col");
-    linear_set_distributed(&mlp->c_proj, "row");
+    // Sharding disabled; keep serial linear layers.
 }
 
 

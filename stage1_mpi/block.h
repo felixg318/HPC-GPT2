@@ -52,8 +52,9 @@ static inline void block_init(Block* blk,
 }
 
 static inline void block_set_distributed(Block* blk, int rank, int world_size) {
-    mha_set_distributed(&blk->mha, rank, world_size);
-    mlp_set_distributed(&blk->mlp);
+    (void)blk;
+    (void)rank;
+    (void)world_size;
 }
 
 

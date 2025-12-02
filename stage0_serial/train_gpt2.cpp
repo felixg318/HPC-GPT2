@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <chrono>
 #include "checkpoint.h"
 #include "gpt.h"
@@ -68,7 +69,22 @@ static void generate_sample_text(GPT* gpt,
     free(context);
 }
 
-int main() {
+static unsigned int parse_seed_arg(int argc, char** argv, unsigned int default_seed) {
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
+            return (unsigned int)atoi(argv[++i]);
+        }
+        if (strncmp(argv[i], "--seed=", 7) == 0) {
+            return (unsigned int)atoi(argv[i] + 7);
+        }
+    }
+    return default_seed;
+}
+
+int main(int argc, char** argv) {
+    const unsigned int DEFAULT_RANDOM_SEED = 1234u;
+    unsigned int seed = parse_seed_arg(argc, argv, DEFAULT_RANDOM_SEED);
+    tensor_set_seed(seed);
     // Tokenize training corpus
     Tokenizer tokenizer;
     tokenizer_init(&tokenizer, "dummy_data.txt");

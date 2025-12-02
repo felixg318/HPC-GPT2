@@ -120,6 +120,9 @@ static inline void dataloader_next_batch(DataLoader* dl, int** inputs, int** tar
         }
     }
     
-    dl->current_pos += batch_size * seq_len * world_size;
-    dl->current_pos %= dl->num_tokens;
+    int stride = batch_size * seq_len * world_size;
+    dl->current_pos += stride;
+    if (dl->current_pos + stride + 1 >= dl->num_tokens) {
+        dl->current_pos = 0;
+    }
 }
