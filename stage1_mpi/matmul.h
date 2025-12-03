@@ -4,10 +4,16 @@
 #pragma once
 
 #include "tensor.h"
+#include <mpi.h>
 
-static inline void matmul_set_distributed(int rank, int world_size) {
-    (void)rank;
-    (void)world_size;
+static int g_matmul_rank = 0;
+static int g_matmul_world = 1;
+static int g_matmul_reduce_outputs = 0;
+
+static inline void matmul_set_distributed(int rank, int world_size, int reduce_outputs) {
+    g_matmul_rank = (rank >= 0) ? rank : 0;
+    g_matmul_world = (world_size > 0) ? world_size : 1;
+    g_matmul_reduce_outputs = reduce_outputs ? 1 : 0;
 }
 
 // Context for the matmul operation
@@ -15,6 +21,14 @@ typedef struct {
     Tensor* a;
     Tensor* b;
 } MatmulContext;
+
+static inline void matmul_maybe_allreduce(Tensor* out) {
+    if (out == NULL || out->data == NULL) return;
+    if (g_matmul_reduce_outputs && g_matmul_world > 1) {
+        int elems = tensor_numel(out);
+        MPI_Allreduce(MPI_IN_PLACE, out->data, elems, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    }
+}
 
 // Backward function for matrix multiplication
 static inline void matmul_backward(Tensor* t) {
@@ -119,6 +133,8 @@ static inline void matmul_forward(const Tensor* a, const Tensor* b, Tensor* out)
         printf("matmul_forward: ERROR: unsupported shapes\n");
         return;
     }
+
+    matmul_maybe_allreduce(out);
 
     // Create context for autograd
     MatmulContext* ctx = (MatmulContext*)malloc(sizeof(MatmulContext));

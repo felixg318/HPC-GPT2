@@ -13,6 +13,11 @@
 // Forward declaration of Tensor struct to use it in function pointers.
 struct Tensor;
 
+typedef enum {
+    TENSOR_DIST_REPLICATED = 0,
+    TENSOR_DIST_SHARDED = 1
+} TensorDistType;
+
 /*
   A very simple N-dimensional tensor of floats.
 
@@ -28,12 +33,30 @@ typedef struct Tensor {
     float* grad;                    // pointer to gradient on CPU
     int    shape[TENSOR_MAX_DIMS];  // sizes of each dimension
     int    ndim;                    // number of dimensions actually used
+    TensorDistType dist_type;       // replicated vs sharded parameter
+    int    dist_owner;              // optional owner rank for sharded params
     void*  _ctx;                    // autograd context
     void   (*_backward)(struct Tensor* t); // autograd backward function
     struct Tensor** _inputs;        // upstream tensors
     int    _num_inputs;             // number of upstream tensors
     int    visited;                 // for topological sort
 } Tensor;
+
+static inline void tensor_set_dist_type(Tensor* t, TensorDistType type, int owner_rank) {
+    if (t == NULL) return;
+    t->dist_type = type;
+    t->dist_owner = owner_rank;
+}
+
+static inline int tensor_is_replicated(const Tensor* t) {
+    if (t == NULL) return 1;
+    return t->dist_type == TENSOR_DIST_REPLICATED;
+}
+
+static inline int tensor_is_sharded(const Tensor* t) {
+    if (t == NULL) return 0;
+    return t->dist_type == TENSOR_DIST_SHARDED;
+}
 
 typedef struct {
     Tensor** tensors;
@@ -184,8 +207,14 @@ static inline void tensor_set_inputs2(Tensor* t, Tensor* a, Tensor* b) {
   Helper: compute number of elements = shape[0] * shape[1] * ... * shape[ndim-1]
 */
 static inline int tensor_numel(const Tensor* t) {
+    if (t == NULL || t->ndim <= 0) {
+        return 0;
+    }
     int n = 1;
     for (int i = 0; i < t->ndim; ++i) {
+        if (t->shape[i] == 0) {
+            return 0;
+        }
         n *= t->shape[i];
     }
     return n;
@@ -225,6 +254,8 @@ static inline void tensor_init(Tensor* t, int ndim, const int* shape) {
     t->_inputs = NULL;
     t->_num_inputs = 0;
     t->visited = 0;
+    t->dist_type = TENSOR_DIST_REPLICATED;
+    t->dist_owner = -1;
 }
 
 /*
@@ -250,6 +281,8 @@ static inline void tensor_free(Tensor* t) {
     t->_num_inputs = 0;
     t->_ctx = NULL;
     t->_backward = NULL;
+    t->dist_type = TENSOR_DIST_REPLICATED;
+    t->dist_owner = -1;
 }
 
 /*

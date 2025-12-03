@@ -6,7 +6,6 @@
 #pragma once
 
 #include <stdio.h>
-#include <mpi.h>
 #include "tensor.h"
 
 // Enum for parallelization mode
