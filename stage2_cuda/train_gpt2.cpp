@@ -1,0 +1,229 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <chrono>
+#include "gpt.h"
+#include "dataloader.h"
+#include "adam.h"
+#include "autograd.h"
+
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+#ifdef USE_CUDA
+#include <cuda_runtime.h>
+#endif
+
+static int greedy_select_next_token(const Tensor* logits) {
+    if (logits == NULL || logits->ndim != 3) return 0;
+    int V = logits->shape[2];
+    int last_t = logits->shape[1] - 1;
+    float best_val = tensor_get3(logits, 0, last_t, 0);
+    int best_idx = 0;
+    for (int v = 1; v < V; ++v) {
+        float val = tensor_get3(logits, 0, last_t, v);
+        if (val > best_val) {
+            best_val = val;
+            best_idx = v;
+        }
+    }
+    return best_idx;
+}
+
+static void generate_sample_text(GPT* gpt,
+                                 const Tokenizer* tokenizer,
+                                 const int* seed_tokens,
+                                 int seed_len,
+                                 int max_new_tokens) {
+    if (gpt == NULL || tokenizer == NULL || seed_tokens == NULL) {
+        printf("generate_sample_text: missing inputs\n");
+        return;
+    }
+    if (seed_len <= 0) {
+        printf("generate_sample_text: need at least one seed token\n");
+        return;
+    }
+
+    int total_capacity = seed_len + max_new_tokens;
+    int* context = (int*)malloc(total_capacity * sizeof(int));
+    if (context == NULL) {
+        printf("generate_sample_text: failed to allocate context buffer\n");
+        return;
+    }
+    for (int i = 0; i < seed_len; ++i) context[i] = seed_tokens[i];
+    int current_len = seed_len;
+    int eos_id = tokenizer_eos_id(tokenizer);
+
+    while (current_len < total_capacity) {
+        int window = current_len < gpt->block_size ? current_len : gpt->block_size;
+        const int* window_ptr = context + (current_len - window);
+        Tensor logits;
+        gpt_forward_logits(gpt, window_ptr, 1, window, &logits);
+        int next_token = greedy_select_next_token(&logits);
+        tensor_free(&logits);
+        context[current_len++] = next_token;
+        if (eos_id >= 0 && next_token == eos_id) {
+            printf("Encountered EOS token at position %d, stopping generation.\n", current_len - 1);
+            break;
+        }
+    }
+
+    int generated_tokens = current_len - seed_len;
+    printf("\nGenerated sample (%d seed tokens + %d new tokens):\n", seed_len, generated_tokens);
+    tokenizer_print_tokens(tokenizer, context, current_len);
+    printf("\n");
+    free(context);
+}
+
+int main() {
+#ifdef USE_MPI
+    MPI_Init(NULL, NULL);
+    int world_size = 1;
+    int rank = 0;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+#else
+    int world_size = 1;
+    int rank = 0;
+#endif
+
+#ifdef USE_CUDA
+    int local_device = 0;
+    int device_count = 0;
+    if (cudaGetDeviceCount(&device_count) == cudaSuccess && device_count > 0) {
+        local_device = rank % device_count;
+        cudaSetDevice(local_device);
+    }
+#endif
+    int is_master = (rank == 0);
+
+    // Tokenize training corpus
+    Tokenizer tokenizer;
+    tokenizer_init(&tokenizer, "data/dummy_data.txt");
+    if (!tokenizer_extract(&tokenizer)) {
+        tokenizer_free(&tokenizer);
+        return 1;
+    }
+    if (!tokenizer_encode(&tokenizer)) {
+        tokenizer_free(&tokenizer);
+        return 1;
+    }
+    
+    // Hyperparameters tuned to fit on 2x Quadro M1200 (4 GB each); lower further if you still see OOM.
+    int block_size = 48;   // n_ctx / n_positions (drop to 64 if needed)
+    int n_layer = 8;
+    int n_head = 12;   // head_size = n_embd / n_head
+    int n_embd = 192; // drop to 384/256 if memory is tight
+    float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
+    
+    int batch_size = 4;     // try 4 if it fits; reduce to 1 if still OOM
+    int seq_len = block_size;
+    float lr = 3e-3f;
+    int epochs = 8;
+    float clip_grad_norm_val = 1.0f;
+
+    size_t min_tokens = (size_t)batch_size * seq_len + 1;
+    tokenizer_pad_to(&tokenizer, min_tokens);
+    int vocab_size = tokenizer_vocab_size(&tokenizer);
+    
+    // Initialize model
+    GPT gpt;
+    gpt_init(&gpt, vocab_size, block_size, n_layer, n_head, n_embd, dropout_p);
+    
+    TensorPtrArray param_list;
+    tensor_ptr_array_init(&param_list);
+    gpt_collect_params(&gpt, &param_list);
+
+    AdamOptimizer optimizer;
+    adam_init(&optimizer, param_list.data, param_list.count, lr, 0.9f, 0.95f, 1e-8f);
+    optimizer.lr_scheduler = linear_lr_decay;
+
+#ifdef USE_MPI
+    if (world_size > 1) {
+        // Ensure all ranks start from identical weights.
+        mpi_broadcast_parameters(param_list.data, param_list.count, 0, MPI_COMM_WORLD);
+    }
+#endif
+    
+    // Initialize dataloader
+    DataLoader dl;
+    dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len, rank, world_size);
+
+    auto train_start = std::chrono::high_resolution_clock::now();
+
+    // Training loop
+    for (int epoch = 0; epoch < epochs; ++epoch) {
+        int* inputs;
+        int* targets;
+        dataloader_next_batch(&dl, &inputs, &targets);
+        
+        // Forward pass
+        Tensor logits, loss;
+        gpt_forward_with_loss(&gpt, inputs, targets, batch_size, seq_len, &logits, &loss);
+        
+        // Backward pass
+        backward(&loss);
+        gpt_clear_activations(&gpt);
+
+#ifdef USE_MPI
+        if (world_size > 1) {
+            mpi_allreduce_grads(param_list.data, param_list.count, world_size);
+        }
+#endif
+        
+        // Update weights
+        adam_step(&optimizer, clip_grad_norm_val);
+        
+        // Zero gradients
+        adam_zero_grad(&optimizer);
+        
+        if (is_master) {
+            printf("[rank %d] Epoch %d, Loss: %f\n", rank, epoch, loss.data[0]);
+        }
+        
+        free(inputs);
+        free(targets);
+        tensor_free(&logits);
+        tensor_free(&loss);
+    }
+
+    auto train_end = std::chrono::high_resolution_clock::now();
+    double train_ms = std::chrono::duration_cast<std::chrono::milliseconds>(train_end - train_start).count();
+    if (is_master) {
+        printf("Total training time: %.8f seconds (%.4f minutes)\n", train_ms / 1000.0, train_ms / 60000.0);
+    }
+
+    // Simple text generation demo to inspect model behavior post-training
+    auto gen_start = std::chrono::high_resolution_clock::now();
+    const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
+    int corpus_len = tokenizer_data_len(&tokenizer);
+    if (corpus_len > 0 && is_master) {
+        int prompt_len = seq_len;
+        if (prompt_len > corpus_len) prompt_len = corpus_len;
+        if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
+        int max_new_tokens = 30;
+        generate_sample_text(&gpt, &tokenizer, corpus_tokens, prompt_len, max_new_tokens);
+    } else {
+        if (is_master) {
+            printf("Skipping text generation; tokenizer has no tokens.\n");
+        }
+    }
+    auto gen_end = std::chrono::high_resolution_clock::now();
+    double gen_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(gen_end - gen_start).count();
+    if (is_master) {
+        printf("Text generation time: %.8f seconds\n", gen_seconds);
+    }
+    
+    // Free resources
+    gpt_clear_activations(&gpt);
+    gpt_free(&gpt);
+    adam_free(&optimizer);
+    dataloader_free(&dl);
+    dataloader_free(&dl);
+    tokenizer_free(&tokenizer);
+    tensor_ptr_array_free(&param_list);
+#ifdef USE_MPI
+    MPI_Finalize();
+#endif
+    
+    return 0;
+}
