@@ -51,7 +51,7 @@ LIBRARIES := -L$(CUDA_PATH)/lib64 -lcudart
 # Targets
 ################################################################################
 
-TARGETS := train_gpt2 gpt2 test_gpt2 test_tokenizer
+TARGETS := train_gpt2 inference
 
 .PHONY: all clean clobber
 
@@ -60,19 +60,11 @@ all: train_gpt2
 cuda_kernels.o: cuda_kernels.cu cuda_utils.h
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -c $< -o $@
 
-gpt2: gpt2.cpp cuda_kernels.o
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) $^ -o $@ $(LIBRARIES)
-
 train_gpt2: train_gpt2.cpp cuda_kernels.o
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) $^ -o $@ $(LIBRARIES)
 
-test_gpt2: test_gpt2.cpp cuda_kernels.o
+inference: inference.cpp cuda_kernels.o
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) $^ -o $@ $(LIBRARIES)
-
-test_tokenizer: test_tokenizer.c
-	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $< -o $@ $(LIBRARIES)
 
 clean:
 	rm -f $(TARGETS) cuda_kernels.o
-
-clobber: clean

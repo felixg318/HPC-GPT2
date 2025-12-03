@@ -5,6 +5,7 @@
 #include "dataloader.h"
 #include "adam.h"
 #include "autograd.h"
+#include "checkpoint.h"
 
 #ifdef USE_MPI
 #include <mpi.h>
@@ -222,6 +223,15 @@ int main(int argc, char** argv) {
     double gen_seconds = std::chrono::duration_cast<std::chrono::duration<double>>(gen_end - gen_start).count();
     if (is_master) {
         printf("Text generation time: %.8f seconds\n", gen_seconds);
+    }
+
+    // Save weights so inference can load them later.
+    if (is_master) {
+        if (save_weights("trained_weights.bin", &param_list)) {
+            printf("Saved trained weights to trained_weights.bin\n");
+        } else {
+            printf("Failed to save trained weights.\n");
+        }
     }
     
     // Free resources
