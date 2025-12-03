@@ -98,7 +98,7 @@ int main() {
 
     // Tokenize training corpus
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "data/dummy_data.txt");
+    tokenizer_init(&tokenizer, "dummy_data.txt");
     if (!tokenizer_extract(&tokenizer)) {
         tokenizer_free(&tokenizer);
         return 1;
@@ -146,7 +146,7 @@ int main() {
     
     // Initialize dataloader
     DataLoader dl;
-    dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len, rank, world_size);
+    dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len);
 
     auto train_start = std::chrono::high_resolution_clock::now();
 
@@ -217,7 +217,6 @@ int main() {
     gpt_clear_activations(&gpt);
     gpt_free(&gpt);
     adam_free(&optimizer);
-    dataloader_free(&dl);
     dataloader_free(&dl);
     tokenizer_free(&tokenizer);
     tensor_ptr_array_free(&param_list);
