@@ -44,6 +44,9 @@ static inline void head_init(Head* h, int embed_dim, int head_size, int causal) 
     linear_init(&h->key,   embed_dim, head_size, 0 /* use_bias = 0 */);
     linear_init(&h->query, embed_dim, head_size, 0);
     linear_init(&h->value, embed_dim, head_size, 0);
+    tensor_set_dist_type(&h->key.weight, TENSOR_DIST_SHARDED, -1);
+    tensor_set_dist_type(&h->query.weight, TENSOR_DIST_SHARDED, -1);
+    tensor_set_dist_type(&h->value.weight, TENSOR_DIST_SHARDED, -1);
 }
 
 

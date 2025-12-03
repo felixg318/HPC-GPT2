@@ -5,8 +5,17 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <mpi.h>
 #include "tensor.h"
 #include "softmax.h"
+
+static int g_cross_entropy_rank = 0;
+static int g_cross_entropy_world = 1;
+
+static inline void cross_entropy_set_distributed(int rank, int world_size) {
+    g_cross_entropy_rank = (rank >= 0) ? rank : 0;
+    g_cross_entropy_world = (world_size > 0) ? world_size : 1;
+}
 
 // Context for the cross-entropy operation
 typedef struct {
@@ -14,6 +23,7 @@ typedef struct {
     const int* targets;
     int B;
     int T;
+    float inv_token_count;
 } CrossEntropyContext;
 
 // Backward function for cross-entropy loss
@@ -24,7 +34,6 @@ static inline void cross_entropy_backward(Tensor* t) {
     int B = ctx->B;
     int T = ctx->T;
     int V = logits->shape[2];
-    int N = B * T;
 
     // The gradient of the cross entropy loss is softmax(logits) - y
     // where y is the one-hot encoded target.
@@ -38,7 +47,7 @@ static inline void cross_entropy_backward(Tensor* t) {
             for (int v = 0; v < V; ++v) {
                 float prob = tensor_get3(&probs, b, t_, v);
                 float grad = prob - (v == target_idx ? 1.0f : 0.0f);
-                logits->grad[tensor_index3(logits, b, t_, v)] += grad / N;
+                logits->grad[tensor_index3(logits, b, t_, v)] += grad * ctx->inv_token_count;
             }
         }
     }
@@ -119,7 +128,14 @@ static inline void cross_entropy_loss_3d(const Tensor* logits,
         }
     }
 
-    float mean_loss = loss_sum / (float)N;
+    double accum[2];
+    accum[0] = (double)loss_sum;
+    accum[1] = (double)N;
+    if (g_cross_entropy_world > 1) {
+        MPI_Allreduce(MPI_IN_PLACE, accum, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    }
+    float mean_loss = (float)(accum[0] / (accum[1] > 0.0 ? accum[1] : 1.0));
+    float inv_token_count = (float)(1.0 / (accum[1] > 0.0 ? accum[1] : 1.0));
     
     int out_shape[1] = {1};
     tensor_init(out, 1, out_shape);
@@ -131,6 +147,7 @@ static inline void cross_entropy_loss_3d(const Tensor* logits,
     ctx->targets = targets;
     ctx->B = B;
     ctx->T = T;
+    ctx->inv_token_count = inv_token_count;
     
     tensor_set_inputs1(out, (Tensor*)logits);
     out->_ctx = ctx;

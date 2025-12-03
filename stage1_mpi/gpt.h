@@ -86,9 +86,10 @@ static inline void gpt_set_distributed(GPT* g, int rank, int world_size) {
     for (int i = 0; i < g->n_layer; ++i) {
         block_set_distributed(&g->blocks[i], rank, world_size);
     }
-    matmul_set_distributed(rank, world_size);
-    softmax_set_distributed(rank, world_size);
+    matmul_set_distributed(rank, world_size, 1);
+    softmax_set_distributed(rank, world_size, 1);
     gelu_set_distributed(rank, world_size);
+    cross_entropy_set_distributed(rank, world_size);
 }
 
 

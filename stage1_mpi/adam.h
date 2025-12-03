@@ -24,6 +24,7 @@ typedef struct AdamOptimizer {
     void (*lr_scheduler)(struct AdamOptimizer* optimizer); // Learning rate scheduler
     int rank;
     int world_size;
+    int* shared_mask;      // 1 if parameter is replicated, 0 if sharded
 } AdamOptimizer;
 
 /*
@@ -49,6 +50,7 @@ static inline void adam_init(AdamOptimizer* optimizer, Tensor** params, int num_
     optimizer->lr_scheduler = NULL;
     optimizer->rank = 0;
     optimizer->world_size = 1;
+    optimizer->shared_mask = NULL;
 
     optimizer->m = (Tensor*)malloc(num_params * sizeof(Tensor));
     optimizer->v = (Tensor*)malloc(num_params * sizeof(Tensor));
@@ -71,11 +73,32 @@ static inline void adam_free(AdamOptimizer* optimizer) {
     }
     free(optimizer->m);
     free(optimizer->v);
+    if (optimizer->shared_mask != NULL) {
+        free(optimizer->shared_mask);
+        optimizer->shared_mask = NULL;
+    }
 }
 
 static inline void adam_set_distributed(AdamOptimizer* optimizer, int rank, int world_size) {
     optimizer->rank = rank;
     optimizer->world_size = (world_size > 0) ? world_size : 1;
+}
+
+static inline void adam_set_shared_mask(AdamOptimizer* optimizer, const int* mask) {
+    if (optimizer == NULL) return;
+    if (optimizer->shared_mask != NULL) {
+        free(optimizer->shared_mask);
+        optimizer->shared_mask = NULL;
+    }
+    if (mask == NULL) return;
+    optimizer->shared_mask = (int*)malloc((size_t)optimizer->num_params * sizeof(int));
+    if (optimizer->shared_mask == NULL) {
+        printf("adam_set_shared_mask: failed to allocate mask\n");
+        return;
+    }
+    for (int i = 0; i < optimizer->num_params; ++i) {
+        optimizer->shared_mask[i] = mask[i];
+    }
 }
 
 /*
@@ -91,14 +114,31 @@ static inline void adam_zero_grad(AdamOptimizer* optimizer) {
   Clip the gradients to a maximum norm.
 */
 static inline void clip_grad_norm(AdamOptimizer* optimizer, float max_norm) {
-    float total_norm = 0.0f;
+    float shared_norm = 0.0f;
+    float sharded_norm = 0.0f;
     for (int i = 0; i < optimizer->num_params; ++i) {
-        int n = tensor_numel(optimizer->params[i]);
+        Tensor* param = optimizer->params[i];
+        int n = tensor_numel(param);
+        if (n <= 0) continue;
+        float accum = 0.0f;
         for (int j = 0; j < n; ++j) {
-            total_norm += optimizer->params[i]->grad[j] * optimizer->params[i]->grad[j];
+            accum += param->grad[j] * param->grad[j];
+        }
+        int shared = 1;
+        if (optimizer->shared_mask != NULL) {
+            shared = optimizer->shared_mask[i];
+        }
+        if (shared) {
+            shared_norm += accum;
+        } else {
+            sharded_norm += accum;
         }
     }
-    total_norm = sqrt(total_norm);
+    if (optimizer->world_size > 1 && shared_norm > 0.0f) {
+        MPI_Allreduce(MPI_IN_PLACE, &shared_norm, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        shared_norm /= (float)optimizer->world_size;
+    }
+    float total_norm = sqrtf(shared_norm + sharded_norm);
     
     if (total_norm > max_norm) {
         float scale = max_norm / total_norm;
