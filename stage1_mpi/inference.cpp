@@ -90,6 +90,9 @@ static int generate_sequence_into_buffer(GPT* gpt,
         out_buffer[current_len++] = next_token;
 
         if (eos_id >= 0 && next_token == eos_id) {
+            if (rank == 0) {
+                printf("Encountered EOS token at position %d, stopping generation.\n", current_len - 1);
+            }
             break;
         }
     }
@@ -151,8 +154,8 @@ static void distributed_generate_text(GPT* gpt,
             printf("\nGenerated sample (%d seed tokens + %d new tokens):\n",
                    prompt_len, new_tokens);
             tokenizer_print_tokens(tokenizer, buffer, produced);
-            printf("\nGeneration time: %.6f seconds (max_rank=%.6f s)\n",
-                   avg_ms / 1000.0, max_ms / 1000.0);
+            printf("\n");
+            printf("Text generation time: %.8f seconds\n", max_ms / 1000.0);
         } else {
             printf("Failed to generate text.\n");
         }

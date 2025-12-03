@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <chrono>
 #include "checkpoint.h"
 #include "gpt.h"
@@ -59,27 +58,9 @@ static void generate_sample_text(GPT* gpt,
 }
 
 int main(int argc, char** argv) {
-    const unsigned int DEFAULT_RANDOM_SEED = 1234u;
-    unsigned int seed = DEFAULT_RANDOM_SEED;
-    const char* weights_path = NULL;
-
-    for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
-            seed = (unsigned int)atoi(argv[++i]);
-            continue;
-        }
-        if (strncmp(argv[i], "--seed=", 7) == 0) {
-            seed = (unsigned int)atoi(argv[i] + 7);
-            continue;
-        }
-        if (weights_path == NULL) {
-            weights_path = argv[i];
-        }
-    }
-    if (weights_path == NULL) {
-        weights_path = "trained_weights.bin";
-    }
-    tensor_set_seed(seed);
+    const unsigned int RANDOM_SEED = 1234u;
+    const char* weights_path = (argc > 1) ? argv[1] : "trained_weights.bin";
+    tensor_set_seed(RANDOM_SEED);
 
     // Hyperparameters must match the training run
     int block_size = 48;

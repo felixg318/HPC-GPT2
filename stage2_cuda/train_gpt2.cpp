@@ -74,9 +74,11 @@ static void generate_sample_text(GPT* gpt,
     free(context);
 }
 
-int main() {
+int main(int argc, char** argv) {
+    const unsigned int DEFAULT_RANDOM_SEED = 1234u;
+    unsigned int seed = DEFAULT_RANDOM_SEED;
 #ifdef USE_MPI
-    MPI_Init(NULL, NULL);
+    MPI_Init(&argc, &argv);
     int world_size = 1;
     int rank = 0;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -84,7 +86,10 @@ int main() {
 #else
     int world_size = 1;
     int rank = 0;
+    (void)argc;
+    (void)argv;
 #endif
+    tensor_set_seed(seed);
 
 #ifdef USE_CUDA
     int local_device = 0;
@@ -117,7 +122,7 @@ int main() {
     
     int batch_size = 4;     // try 4 if it fits; reduce to 1 if still OOM
     int seq_len = block_size;
-    float lr = 3e-3f;
+    float lr = 3e-4f;
     int epochs = 8;
     float clip_grad_norm_val = 1.0f;
 

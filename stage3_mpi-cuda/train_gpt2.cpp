@@ -77,9 +77,12 @@ static void generate_sample_text(GPT* gpt,
 }
 
 int main(int argc, char** argv) {
+    const unsigned int DEFAULT_RANDOM_SEED = 1234u;
+    unsigned int seed = DEFAULT_RANDOM_SEED;
 #ifdef USE_MPI
     MPI_Init(&argc, &argv);
 #endif
+    tensor_set_seed(seed);
     int world_size = 1;
     int rank = 0;
     mpi_get_rank_world(&rank, &world_size);
@@ -140,7 +143,7 @@ int main(int argc, char** argv) {
     }
     int batch_size = global_batch_size / world_size;
     int seq_len = block_size;
-    float lr = 3e-3f;
+    float lr = 3e-4f;
     int epochs = 8;
     float clip_grad_norm_val = 1.0f;
 

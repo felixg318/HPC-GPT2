@@ -13,6 +13,8 @@
 
 #define TENSOR_MAX_DIMS 4  // we only need up to 3D (plus a little safety)
 
+static int tensor_rand_seeded_flag = 0;
+
 // Forward declaration of Tensor struct to use it in function pointers.
 struct Tensor;
 
@@ -285,11 +287,15 @@ static inline void tensor_fill(Tensor* t, float value) {
     }
 }
 
+static inline void tensor_set_seed(unsigned int seed) {
+    srand(seed);
+    tensor_rand_seeded_flag = 1;
+}
+
 static inline float tensor_rand_uniform() {
-    static int tensor_rand_seeded = 0;
-    if (!tensor_rand_seeded) {
+    if (!tensor_rand_seeded_flag) {
         srand((unsigned int)time(NULL));
-        tensor_rand_seeded = 1;
+        tensor_rand_seeded_flag = 1;
     }
     return ((float)rand() + 1.0f) / ((float)RAND_MAX + 2.0f);
 }

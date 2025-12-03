@@ -9,6 +9,7 @@
 #include <mpi.h>
 
 #include "tokenizer.h"
+#include "tensor.h"
 
 typedef struct {
     int* tokens;
@@ -123,6 +124,9 @@ static inline void dataloader_next_batch(DataLoader* dl, int** inputs, int** tar
     int stride = batch_size * seq_len * world_size;
     dl->current_pos += stride;
     if (dl->current_pos + stride + 1 >= dl->num_tokens) {
-        dl->current_pos = 0;
+        // Advance start position using the same RNG seeded via tensor_set_seed for reproducibility.
+        int offset = (int)(tensor_rand_uniform() * (float)dl->num_tokens);
+        if (offset >= dl->num_tokens) offset = dl->num_tokens - 1;
+        dl->current_pos = offset;
     }
 }

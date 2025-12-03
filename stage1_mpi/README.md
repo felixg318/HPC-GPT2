@@ -34,3 +34,12 @@ This directory mirrors the `stage0_serial` GPT‑2 implementation but extends it
 - `dummy_data.txt`, `dummy_data2.txt`, `trained_weights.bin` – identical content as stage0 but stored here for convenience when running MPI jobs in this directory.
 
 In short, `stage1_mpi` preserves the clean C implementation from `stage0_serial` while layering in MPI primitives for **data parallel** scale-out: rank 0 prepares data, all ranks own full model replicas, gradients are averaged every step, and rank 0 handles logging/generation. Use `mpirun -np <N> ./train_gpt2` to exercise these upgrades.
+
+## Code Flow (train_gpt2.cpp)
+- Parse optional `--seed`, init MPI, and seed RNG.
+- Validate `global_batch_size` divisibility by `world_size`; derive per-rank `batch_size`.
+- Rank 0 tokenizes/pads corpus, then broadcasts tokenizer state to all ranks.
+- Initialize GPT, collect params, build sync metadata (shared vs local), and broadcast initial shared parameters from rank 0.
+- Set up Adam with distributed masks; build dataloader, broadcast token buffer, and offset batches per rank.
+- Training loop: get per-rank batch → forward → allreduce loss for logging → backward → pack grads → allreduce grad buffer → unpack/scale → Adam step → zero grads → rank 0 logs loss.
+- After training: barrier, rank 0 saves weights, then distributed greedy generation (rank 0 selects next token, broadcasts). Timings collected via barriers/reduces. Cleanup and `MPI_Finalize`.

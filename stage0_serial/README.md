@@ -43,3 +43,11 @@ This directory hosts a from‑scratch, single‑process GPT‑2 style implementa
 - `train_gpt2` and `inference` binaries – compiled outputs of their respective `.cpp` sources (kept here for convenience, but can be regenerated via `g++`/`clang++`).
 
 Taken together, these components mirror the GPT‑2 architecture: tokenizer → embeddings → repeated transformer blocks (attention + MLP) → final layernorm + LM head, with autograd and Adam enabling gradient-based training. Use `train_gpt2.cpp` for end-to-end runs and `inference.cpp` for sampling with saved checkpoints.
+
+## Code Flow (train_gpt2.cpp)
+- Parse optional `--seed`, set RNG seed.
+- Build tokenizer on `dummy_data.txt`, pad corpus to at least one full batch+1 target token, and extract vocab size.
+- Initialize GPT model (`gpt_init`), collect parameters, and create Adam optimizer with linear LR decay.
+- Create dataloader over encoded tokens and log expected token counts.
+- Training loop: get batch → forward (`gpt_forward_with_loss`) → backward → optimizer step → zero grads → log loss.
+- After training: save weights (`checkpoint.h`), run greedy text generation demo, print timing, and free all resources.

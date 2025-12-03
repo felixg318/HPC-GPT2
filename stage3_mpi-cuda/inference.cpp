@@ -3,7 +3,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <chrono>
 #include <mpi.h>
 #include "gpt.h"
@@ -27,17 +26,6 @@ static int greedy_select_next_token(const Tensor* logits) {
     return best_idx;
 }
 
-static inline void synchronize_logits_across_ranks(Tensor* logits, int world_size) {
-    if (logits == NULL || logits->data == NULL || world_size <= 1) return;
-    int n = tensor_numel(logits);
-    if (n <= 0) return;
-    MPI_Allreduce(MPI_IN_PLACE, logits->data, n, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    float inv = 1.0f / (float)world_size;
-    for (int i = 0; i < n; ++i) {
-        logits->data[i] *= inv;
-    }
-}
-
 static int generate_sequence_into_buffer(GPT* gpt,
                                          const Tokenizer* tokenizer,
                                          const int* seed_tokens,
@@ -45,8 +33,7 @@ static int generate_sequence_into_buffer(GPT* gpt,
                                          int max_new_tokens,
                                          int* out_buffer,
                                          int buffer_capacity,
-                                         int rank,
-                                         int world_size) {
+                                         int rank) {
     if (gpt == NULL || tokenizer == NULL || seed_tokens == NULL || out_buffer == NULL) {
         if (rank == 0) printf("generate_sequence_into_buffer: invalid inputs\n");
         return -1;
@@ -78,13 +65,8 @@ static int generate_sequence_into_buffer(GPT* gpt,
 
         Tensor logits;
         gpt_forward_logits(gpt, window_ptr, 1, window, &logits);
-        synchronize_logits_across_ranks(&logits, world_size);
 
-        int next_token = 0;
-        if (rank == 0) {
-            next_token = greedy_select_next_token(&logits);
-        }
-        MPI_Bcast(&next_token, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        int next_token = greedy_select_next_token(&logits);
         tensor_free(&logits);
 
         out_buffer[current_len++] = next_token;
@@ -103,8 +85,7 @@ static void distributed_generate_text(GPT* gpt,
                                       int corpus_len,
                                       int prompt_len,
                                       int max_new_tokens,
-                                      int rank,
-                                      int world_size) {
+                                      int rank) {
     if (gpt == NULL || tokenizer == NULL || corpus_tokens == NULL) {
         if (rank == 0) printf("distributed_generate_text: missing inputs\n");
         return;
@@ -131,18 +112,14 @@ static void distributed_generate_text(GPT* gpt,
 
     const int* prompt_ptr = corpus_tokens;
 
-    MPI_Barrier(MPI_COMM_WORLD);
     auto gen_start = std::chrono::high_resolution_clock::now();
-    int produced = generate_sequence_into_buffer(gpt, tokenizer, prompt_ptr, prompt_len,
-                                                 max_new_tokens, buffer, total_capacity, rank, world_size);
-    MPI_Barrier(MPI_COMM_WORLD);
+    int produced = -1;
+    if (rank == 0) {
+        produced = generate_sequence_into_buffer(gpt, tokenizer, prompt_ptr, prompt_len,
+                                                 max_new_tokens, buffer, total_capacity, rank);
+    }
     auto gen_end = std::chrono::high_resolution_clock::now();
     double gen_ms = std::chrono::duration_cast<std::chrono::milliseconds>(gen_end - gen_start).count();
-    double max_ms = gen_ms;
-    double avg_ms = gen_ms;
-    MPI_Allreduce(MPI_IN_PLACE, &max_ms, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-    MPI_Allreduce(MPI_IN_PLACE, &avg_ms, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-    avg_ms /= (double)world_size;
 
     if (rank == 0) {
         if (produced > 0) {
@@ -151,8 +128,7 @@ static void distributed_generate_text(GPT* gpt,
             printf("\nGenerated sample (%d seed tokens + %d new tokens):\n",
                    prompt_len, new_tokens);
             tokenizer_print_tokens(tokenizer, buffer, produced);
-            printf("\nGeneration time: %.6f seconds (max_rank=%.6f s)\n",
-                   avg_ms / 1000.0, max_ms / 1000.0);
+            printf("\nGeneration time: %.6f seconds\n", gen_ms / 1000.0);
         } else {
             printf("Failed to generate text.\n");
         }
@@ -164,27 +140,17 @@ static void distributed_generate_text(GPT* gpt,
 int main(int argc, char** argv) {
     const unsigned int DEFAULT_RANDOM_SEED = 1234u;
     unsigned int seed = DEFAULT_RANDOM_SEED;
-    const char* weights_path = NULL;
+    const char* weights_path = (argc > 1) ? argv[1] : "trained_weights.bin";
 
-    for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
-            seed = (unsigned int)atoi(argv[++i]);
-            continue;
-        }
-        if (strncmp(argv[i], "--seed=", 7) == 0) {
-            seed = (unsigned int)atoi(argv[i] + 7);
-            continue;
-        }
-        if (weights_path == NULL) {
-            weights_path = argv[i];
-        }
-    }
-    if (weights_path == NULL) {
-        weights_path = "trained_weights.bin";
+    int mpi_initialized = 0;
+    if (MPI_Init(&argc, &argv) == MPI_SUCCESS) {
+        mpi_initialized = 1;
+    } else {
+        printf("MPI_Init failed\n");
+        return 1;
     }
 
-    MPI_Init(&argc, &argv);
-    srand(seed);
+    tensor_set_seed(seed);
 
     int world_size = 1;
     int rank = 0;
@@ -200,31 +166,17 @@ int main(int argc, char** argv) {
     int batch_size = 8;
     int seq_len = block_size;
 
-    // Build tokenizer on rank 0 and broadcast to others
+    // Build tokenizer locally
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, rank == 0 ? "dummy_data.txt" : NULL);
-    int tokenizer_ok = 1;
-    if (rank == 0) {
-        if (!tokenizer_extract(&tokenizer)) tokenizer_ok = 0;
-        if (tokenizer_ok && !tokenizer_encode(&tokenizer)) tokenizer_ok = 0;
-        if (tokenizer_ok) {
-            size_t min_tokens = (size_t)batch_size * seq_len * (size_t)world_size + 1;
-            tokenizer_pad_to(&tokenizer, min_tokens);
-        }
-    }
-    MPI_Bcast(&tokenizer_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (!tokenizer_ok) {
-        if (rank == 0) printf("Failed to build tokenizer.\n");
+    tokenizer_init(&tokenizer, "dummy_data.txt");
+    if (!tokenizer_extract(&tokenizer) || !tokenizer_encode(&tokenizer)) {
+        printf("Failed to build tokenizer.\n");
         tokenizer_free(&tokenizer);
-        MPI_Finalize();
+        if (mpi_initialized) MPI_Finalize();
         return 1;
     }
-    if (!tokenizer_broadcast(&tokenizer, rank)) {
-        if (rank == 0) printf("Failed to broadcast tokenizer.\n");
-        tokenizer_free(&tokenizer);
-        MPI_Finalize();
-        return 1;
-    }
+    size_t min_tokens = (size_t)batch_size * seq_len * (size_t)world_size + 1;
+    tokenizer_pad_to(&tokenizer, min_tokens);
 
     int vocab_size = tokenizer_vocab_size(&tokenizer);
 
@@ -237,26 +189,14 @@ int main(int argc, char** argv) {
     gpt_collect_params(&gpt, &param_list);
 
     int load_ok = load_weights(weights_path, &param_list);
-    if (rank == 0 && !load_ok) {
-        printf("Failed to load weights from %s\n", weights_path);
-    }
-    MPI_Bcast(&load_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
     if (!load_ok) {
+        printf("Failed to load weights from %s\n", weights_path);
         tensor_ptr_array_free(&param_list);
         gpt_free(&gpt);
         tokenizer_free(&tokenizer);
-        MPI_Finalize();
+        if (mpi_initialized) MPI_Finalize();
         return 1;
     }
-
-    // Broadcast parameters to all ranks
-    for (int i = 0; i < param_list.count; ++i) {
-        Tensor* param = param_list.data[i];
-        int n = tensor_numel(param);
-        MPI_Bcast(param->data, n, MPI_FLOAT, 0, MPI_COMM_WORLD);
-    }
-
-    MPI_Barrier(MPI_COMM_WORLD);
     const int* corpus_tokens = tokenizer_data_ptr(&tokenizer);
     int corpus_len = tokenizer_data_len(&tokenizer);
     int prompt_len = seq_len;
@@ -264,12 +204,12 @@ int main(int argc, char** argv) {
     if (prompt_len > gpt.block_size) prompt_len = gpt.block_size;
     int max_new_tokens = 30;
     distributed_generate_text(&gpt, &tokenizer, corpus_tokens, corpus_len,
-                              prompt_len, max_new_tokens, rank, world_size);
+                              prompt_len, max_new_tokens, rank);
 
     gpt_clear_activations(&gpt);
     gpt_free(&gpt);
     tokenizer_free(&tokenizer);
     tensor_ptr_array_free(&param_list);
-    MPI_Finalize();
+    if (mpi_initialized) MPI_Finalize();
     return 0;
 }
