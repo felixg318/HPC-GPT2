@@ -2,17 +2,22 @@
 # MPI + CUDA build for stage3 (hybrid data-parallel training on GPU)
 ################################################################################
 
-# CUDA toolchain configuration
-CUDA_PATH      ?= /usr/local/cuda
+# CUDA toolchain configuration (align with stage2 CUDA setup)
+CUDA_PATH      ?= /usr/local/cuda-12.8
 MPI_CXX        ?= mpicxx
-HOST_COMPILER  ?= $(MPI_CXX)
+HOST_COMPILER  ?= /usr/bin/g++-14
 
 # GPU architectures to target (override as needed)
 SMS            ?= 50 52 61
 
+# MPI include/link flags (so we can use a specific host compiler)
+MPI_CXXFLAGS   := $(shell $(MPI_CXX) --showme:compile)
+# Keep MPI link flags simple to avoid nvcc choking on -Wl, options
+MPI_LDFLAGS    := -L/usr/lib64/openmpi/lib -lmpi
+
 # NVCC flags
 NVCC           := $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)
-NVCCFLAGS      := -O2 -std=c++17 -Xcompiler -fPIE
+NVCCFLAGS      := -O2 -std=c++17 --threads 0 -Xcompiler -fPIE
 EXTRA_NVCCFLAGS += -DUSE_CUDA -DUSE_MPI -Wno-deprecated-gpu-targets
 
 # Build gencode flags from SMS list
@@ -23,8 +28,8 @@ ifneq ($(HIGHEST_SM),)
 GENCODE_FLAGS += -gencode arch=compute_$(HIGHEST_SM),code=compute_$(HIGHEST_SM)
 endif
 
-INCLUDES  :=
-LIBRARIES := -L$(CUDA_PATH)/lib64 -lcudart
+INCLUDES  := $(MPI_CXXFLAGS)
+LIBRARIES := $(MPI_LDFLAGS) -L$(CUDA_PATH)/lib64 -lcudart
 
 TARGETS := train_gpt2 inference
 

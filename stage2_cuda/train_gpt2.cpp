@@ -149,6 +149,12 @@ int main() {
     dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len);
 
     auto train_start = std::chrono::high_resolution_clock::now();
+    long long tokens_per_epoch = (long long)batch_size * (long long)seq_len;
+    long long total_tokens = tokens_per_epoch * (long long)epochs;
+    if (is_master) {
+        printf("Training tokens (CUDA): per epoch=%lld, total=%lld\n",
+               tokens_per_epoch, total_tokens);
+    }
 
     // Training loop
     for (int epoch = 0; epoch < epochs; ++epoch) {
@@ -177,7 +183,7 @@ int main() {
         adam_zero_grad(&optimizer);
         
         if (is_master) {
-            printf("[rank %d] Epoch %d, Loss: %f\n", rank, epoch, loss.data[0]);
+            printf("Epoch %d, Loss: %f\n", epoch, loss.data[0]);
         }
         
         free(inputs);

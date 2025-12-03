@@ -173,6 +173,12 @@ int main(int argc, char** argv) {
     dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len, rank, world_size);
 
     auto train_start = std::chrono::high_resolution_clock::now();
+    long long tokens_per_epoch = (long long)global_batch_size * (long long)seq_len;
+    long long total_tokens = tokens_per_epoch * (long long)epochs;
+    if (is_master) {
+        printf("Training tokens (MPI+CUDA): per epoch=%lld, total=%lld (world_size=%d)\n",
+               tokens_per_epoch, total_tokens, world_size);
+    }
 
     // Training loop
     for (int epoch = 0; epoch < epochs; ++epoch) {
@@ -202,7 +208,7 @@ int main(int argc, char** argv) {
         
         float avg_loss = (world_size > 1) ? mpi_allreduce_loss(loss.data[0]) : loss.data[0];
         if (is_master) {
-            printf("[rank %d] Epoch %d, Loss: %f\n", rank, epoch, avg_loss);
+            printf("Epoch %d, Loss: %f\n", epoch, avg_loss);
         }
         
         free(inputs);
