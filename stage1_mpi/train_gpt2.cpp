@@ -17,6 +17,19 @@ typedef struct {
     int is_shared;
 } ParamSyncInfo;
 
+static inline int all_ranks_ok(int local_ok) {
+    int global_ok = local_ok;
+    MPI_Allreduce(MPI_IN_PLACE, &global_ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+    return global_ok;
+}
+
+static inline void abort_all(const char* msg, int rank) {
+    if (rank == 0 && msg != NULL) {
+        printf("%s\n", msg);
+    }
+    MPI_Abort(MPI_COMM_WORLD, 1);
+}
+
 static unsigned int parse_seed_arg(int argc, char** argv, unsigned int default_seed) {
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--seed") == 0 && i + 1 < argc) {
@@ -196,12 +209,12 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     // Hyperparameters (aligned with the GPT-2 config)
-    int block_size = 256;   // n_ctx / n_positions
+    int block_size = 256;
     int n_layer = 6;
-    int n_head = 6;  
+    int n_head = 6;
     int n_embd = 384;
-    float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
-    
+    float dropout_p = 0.1f; // dropout unused in this implementation
+
     int batch_size = 64;
     int seq_len = block_size;
     float lr = 3e-4f;
@@ -227,7 +240,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    int batch_size = global_batch_size / world_size;
+    batch_size = global_batch_size / world_size;
     if (batch_size <= 0) {
         if (rank == 0) {
             printf("Per-rank batch_size became zero. Increase global_batch_size.\n");
@@ -255,18 +268,15 @@ int main(int argc, char** argv) {
     }
 
     MPI_Bcast(&tokenizer_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (!tokenizer_ok) {
-        if (rank == 0) {
-            tokenizer_free(&tokenizer);
-        }
-        MPI_Finalize();
-        return 1;
+    if (!all_ranks_ok(tokenizer_ok)) {
+        tokenizer_free(&tokenizer);
+        abort_all("Failed to build tokenizer", rank);
     }
 
-    if (!tokenizer_broadcast(&tokenizer, rank)) {
+    int tok_bcast_ok = tokenizer_broadcast(&tokenizer, rank);
+    if (!all_ranks_ok(tok_bcast_ok)) {
         tokenizer_free(&tokenizer);
-        MPI_Finalize();
-        return 1;
+        abort_all("Failed to broadcast tokenizer", rank);
     }
 
     int vocab_size = tokenizer_vocab_size(&tokenizer);
@@ -282,17 +292,14 @@ int main(int argc, char** argv) {
 
     ParamSyncInfo* sync_info = (ParamSyncInfo*)malloc((size_t)param_list.count * sizeof(ParamSyncInfo));
     int* shared_mask = (int*)malloc((size_t)param_list.count * sizeof(int));
-    if (sync_info == NULL || shared_mask == NULL) {
-        if (rank == 0) {
-            printf("Failed to allocate parameter sync metadata\n");
-        }
-        free(sync_info);
-        free(shared_mask);
+    int sync_alloc_ok = (sync_info != NULL && shared_mask != NULL) ? 1 : 0;
+    if (!all_ranks_ok(sync_alloc_ok)) {
+        if (sync_info != NULL) free(sync_info);
+        if (shared_mask != NULL) free(shared_mask);
         tokenizer_free(&tokenizer);
         gpt_free(&gpt);
         tensor_ptr_array_free(&param_list);
-        MPI_Finalize();
-        return 1;
+        abort_all("Failed to allocate parameter sync metadata", rank);
     }
 
     int total_grad_elems = 0;
@@ -329,15 +336,15 @@ int main(int argc, char** argv) {
     DataLoader dl;
     dataloader_init_with_tokenizer(&dl, &tokenizer, batch_size, seq_len);
     dataloader_set_distributed(&dl, rank, world_size);
-    if (!dataloader_broadcast(&dl, 0)) {
+    int dl_ok = dataloader_broadcast(&dl, 0);
+    if (!all_ranks_ok(dl_ok)) {
         dataloader_free(&dl);
         tokenizer_free(&tokenizer);
         gpt_free(&gpt);
         adam_free(&optimizer);
         tensor_ptr_array_free(&param_list);
         free(sync_info);
-        MPI_Finalize();
-        return 1;
+        abort_all("Failed to broadcast dataloader", rank);
     }
     dataloader_set_distributed(&dl, rank, world_size);
 
@@ -354,18 +361,15 @@ int main(int argc, char** argv) {
     const float inv_world = (world_size > 0) ? (1.0f / (float)world_size) : 1.0f;
 
     float* grad_buffer = (float*)malloc((size_t)total_grad_elems * sizeof(float));
-    if (grad_buffer == NULL) {
-        if (rank == 0) {
-            printf("Failed to allocate grad_buffer\n");
-        }
+    if (!all_ranks_ok(grad_buffer != NULL ? 1 : 0)) {
         dataloader_free(&dl);
         tokenizer_free(&tokenizer);
         gpt_free(&gpt);
         adam_free(&optimizer);
         tensor_ptr_array_free(&param_list);
         free(sync_info);
-        MPI_Finalize();
-        return 1;
+        if (grad_buffer != NULL) free(grad_buffer);
+        abort_all("Failed to allocate grad_buffer", rank);
     }
 
     // Training loop
