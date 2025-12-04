@@ -124,14 +124,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // Hyperparameters tuned to fit on modest GPUs; reduce if you still see OOM.
-    int block_size = 48;   // n_ctx / n_positions
-    int n_layer = 8;
-    int n_head = 12;   // head_size = n_embd / n_head
-    int n_embd = 192; // lower if memory is tight
-    float dropout_p = 0.1f;  // resid/embd/attn dropout (not used)
+   // Hyperparameters (aligned with the GPT-2 config)
+    int block_size = 256;   // n_ctx / n_positions
+    int n_layer = 6;
+    int n_head = 6;  
+    int n_embd = 384;
+    float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int global_batch_size = 4;     // global batch across all ranks
+    int global_batch_size = 64;
+    int seq_len = block_size;
+    float lr = 3e-4f;
+    int epochs = 50;
+    float clip_grad_norm_val = 1.0f;
     if (global_batch_size % world_size != 0) {
         if (rank == 0) {
             printf("Global batch size (%d) must divide world_size (%d)\n", global_batch_size, world_size);
@@ -143,9 +147,7 @@ int main(int argc, char** argv) {
     }
     int batch_size = global_batch_size / world_size;
     int seq_len = block_size;
-    float lr = 3e-4f;
-    int epochs = 8;
-    float clip_grad_norm_val = 1.0f;
+    
 
     size_t min_tokens = (size_t)global_batch_size * seq_len + 1;
     tokenizer_pad_to(&tokenizer, min_tokens);

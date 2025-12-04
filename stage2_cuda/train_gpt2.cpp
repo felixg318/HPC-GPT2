@@ -114,17 +114,17 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // Hyperparameters tuned to fit on 2x Quadro M1200 (4 GB each); lower further if you still see OOM.
-    int block_size = 48;   // n_ctx / n_positions (drop to 64 if needed)
-    int n_layer = 8;
-    int n_head = 12;   // head_size = n_embd / n_head
-    int n_embd = 192; // drop to 384/256 if memory is tight
+    // Hyperparameters (aligned with the GPT-2 config)
+    int block_size = 256;   // n_ctx / n_positions
+    int n_layer = 6;
+    int n_head = 6;  
+    int n_embd = 384;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 4;     // try 4 if it fits; reduce to 1 if still OOM
+    int batch_size = 64;
     int seq_len = block_size;
     float lr = 3e-4f;
-    int epochs = 8;
+    int epochs = 50;
     float clip_grad_norm_val = 1.0f;
 
     size_t min_tokens = (size_t)batch_size * seq_len + 1;
