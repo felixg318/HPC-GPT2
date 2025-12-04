@@ -12,7 +12,7 @@ Hybrid MPI data-parallel training on GPUs. Each rank holds a full model replica;
 ## Code Flow (train_gpt2.cpp)
 - MPI init; derive `rank`/`world_size`; choose CUDA device `rank % device_count`.
 - Rank 0 tokenizes/pads `dummy_data.txt`, then broadcasts tokenizer state. Vocab size drives model init.
-- Hyperparameters: block_size 48, n_layer 8, n_head 12, n_embd 192, lr 3e-3, global_batch_size 4 (must divide world_size), epochs 8.
+- Hyperparameters: block_size 48, n_layer 8, n_head 12, n_embd 192, lr 3e-3, global_batch_size 16 (must divide world_size), epochs 8.
 - Compute per-rank `batch_size = global_batch_size / world_size`; init GPT (with distributed flag), collect params, set up Adam (linear LR decay); broadcast weights for consistency.
 - Dataloader seeded with `rank`/`world_size` to split data; training loop per rank: batch → forward → backward → `mpi_allreduce_grads` → Adam step → zero grad → rank 0 logs allreduced loss.
 - After training: rank 0 saves checkpoint; rank 0 runs greedy text generation; print timings; free resources and `MPI_Finalize`.

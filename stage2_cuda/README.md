@@ -11,7 +11,7 @@ CUDA-enabled single-process training of the GPT-2 mini model. Mirrors the header
 ## Code Flow (train_gpt2.cpp)
 - Optional MPI init for rank/world size; pick CUDA device by rank modulo device count.
 - Tokenize/pad `dummy_data.txt`, compute vocab size.
-- Hyperparameters (block_size 48, n_layer 8, n_head 12, n_embd 192, lr 3e-3, batch_size 4, epochs 8).
+- Hyperparameters (block_size 48, n_layer 8, n_head 12, n_embd 192, lr 3e-3, batch_size 16, epochs 8).
 - Init GPT, collect parameters, set up Adam (linear LR decay). If MPI with multiple ranks, broadcast initial weights.
 - Init dataloader over token stream; log expected token counts on master rank.
 - Training loop: dataloader batch → `gpt_forward_with_loss` → `backward` → optional MPI gradient allreduce → `adam_step` → `adam_zero_grad` → master logs loss.
