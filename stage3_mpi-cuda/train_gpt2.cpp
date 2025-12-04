@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 
     // Tokenize training corpus (rank 0 reads, then broadcast)
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, rank == 0 ? "dummy_data.txt" : NULL);
+    tokenizer_init(&tokenizer, rank == 0 ? "../data/tinyshakespeare.txt" : NULL);
 
     int tokenizer_ok = 1;
     if (rank == 0) {
@@ -124,19 +124,18 @@ int main(int argc, char** argv) {
         return 1;
     }
     
-    // Hyperparameters tuned to fit on modest GPUs; reduce if you still see OOM.
-    int block_size = 48;   // n_ctx / n_positions (drop to 64 if needed)
-    int n_layer = 4;
-    int n_head = 4;   // head_size = n_embd / n_head
-    int n_embd = 256; // drop to 384/256 if memory is tight
+   // Hyperparameters (aligned with the GPT-2 config)
+    int block_size = 256;   // n_ctx / n_positions
+    int n_layer = 6;
+    int n_head = 6;  
+    int n_embd = 384;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int global_batch_size = 4;     // try 4 if it fits; reduce to 1 if still OOM
+    int global_batch_size = 64;
     int seq_len = block_size;
-    float lr = 5e-4f;
-    int epochs = 25;
-    float clip_grad_norm_val = 1.0f;   // global batch across all ranks
-    
+    float lr = 3e-4f;
+    int epochs = 50;
+    float clip_grad_norm_val = 1.0f;
     if (global_batch_size % world_size != 0) {
         if (rank == 0) {
             printf("Global batch size (%d) must divide world_size (%d)\n", global_batch_size, world_size);
@@ -147,6 +146,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     int batch_size = global_batch_size / world_size;
+<<<<<<< HEAD
+=======
+    int seq_len = block_size;
+    
+>>>>>>> 592801153989d9913c9e794f00e33a8f7ad554c5
 
     size_t min_tokens = (size_t)global_batch_size * seq_len + 1;
     tokenizer_pad_to(&tokenizer, min_tokens);

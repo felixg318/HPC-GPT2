@@ -195,19 +195,21 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    // Hyperparameters
-    int block_size = 48;   // n_ctx / n_positions (drop to 64 if needed)
-    int n_layer = 4;
-    int n_head = 4;   // head_size = n_embd / n_head
-    int n_embd = 256; // drop to 384/256 if memory is tight
+    // Hyperparameters (aligned with the GPT-2 config)
+    int block_size = 256;   // n_ctx / n_positions
+    int n_layer = 6;
+    int n_head = 6;  
+    int n_embd = 384;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 4;     // try 4 if it fits; reduce to 1 if still OOM
+    int batch_size = 64;
     int seq_len = block_size;
-    float lr = 5e-4f;
-    int epochs = 25;
+    float lr = 3e-4f;
+    int epochs = 50;
     float clip_grad_norm_val = 1.0f;
-    
+
+    int global_batch_size = batch_size;
+
     if (world_size <= 0) {
         if (rank == 0) {
             printf("Invalid world size %d\n", world_size);
@@ -236,7 +238,7 @@ int main(int argc, char** argv) {
 
     // Tokenize training corpus
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, rank == 0 ? "dummy_data.txt" : NULL);
+    tokenizer_init(&tokenizer, rank == 0 ? "../data/tinyshakespeare.txt" : NULL);
 
     int tokenizer_ok = 1;
     if (rank == 0) {
