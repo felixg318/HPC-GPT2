@@ -99,7 +99,7 @@ int main(int argc, char** argv) {
 
     // Tokenize training corpus (rank 0 reads, then broadcast)
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, rank == 0 ? "dummy_data.txt" : NULL);
+    tokenizer_init(&tokenizer, rank == 0 ? "../data/tinyshakespeare.txt" : NULL);
 
     int tokenizer_ok = 1;
     if (rank == 0) {

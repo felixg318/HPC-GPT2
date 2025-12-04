@@ -73,7 +73,7 @@ int main() {
     tensor_set_seed(RANDOM_SEED);
     // Tokenize training corpus
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "dummy_data.txt");
+    tokenizer_init(&tokenizer, "../data/tinyshakespeare.txt");
     if (!tokenizer_extract(&tokenizer)) {
         tokenizer_free(&tokenizer);
         return 1;
@@ -84,16 +84,16 @@ int main() {
     }
     
     // Hyperparameters (aligned with the GPT-2 config)
-    int block_size = 48;   // n_ctx / n_positions
-    int n_layer = 8;
-    int n_head = 12;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
-    int n_embd = 192;
+    int block_size = 256;   // n_ctx / n_positions
+    int n_layer = 6;
+    int n_head = 6;  // ensure num_ranks <= n_head or expect some ranks to sit idle.
+    int n_embd = 384;
     float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
     
-    int batch_size = 4;
+    int batch_size = 64;
     int seq_len = block_size;
     float lr = 3e-4f;
-    int epochs = 8;
+    int epochs = 100;
     float clip_grad_norm_val = 1.0f;
 
     size_t min_tokens = (size_t)batch_size * seq_len + 1;
