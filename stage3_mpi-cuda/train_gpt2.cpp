@@ -146,11 +146,6 @@ int main(int argc, char** argv) {
         return 1;
     }
     int batch_size = global_batch_size / world_size;
-<<<<<<< HEAD
-=======
-    int seq_len = block_size;
-    
->>>>>>> 592801153989d9913c9e794f00e33a8f7ad554c5
 
     size_t min_tokens = (size_t)global_batch_size * seq_len + 1;
     tokenizer_pad_to(&tokenizer, min_tokens);
