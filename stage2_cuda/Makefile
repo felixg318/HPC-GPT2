@@ -64,7 +64,7 @@ TARGETS := train_gpt2 inference
 
 .PHONY: all clean clobber
 
-all: train_gpt2
+all: $(TARGETS)
 
 cuda_kernels.o: cuda_kernels.cu cuda_utils.h
 	$(EXEC) $(NVCC) $(INCLUDES) $(ALL_CCFLAGS) $(GENCODE_FLAGS) -c $< -o $@
