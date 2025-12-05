@@ -213,9 +213,9 @@ int main(int argc, char** argv) {
     int n_layer = 6;
     int n_head = 6;
     int n_embd = 384;
-    float dropout_p = 0.1f; // dropout unused in this implementation
-
-    int batch_size = 64;
+    float dropout_p = 0.1f;  // resid/embd/attn dropout which is not used at all.
+    
+    int batch_size = 16;
     int seq_len = block_size;
     float lr = 3e-4f;
     int epochs = 50;

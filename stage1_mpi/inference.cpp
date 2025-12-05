@@ -207,24 +207,24 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    // Hyperparameters must match training (kept tiny for CPU/MPI demos)
-    int block_size = 48;
-    int n_layer = 8;
-    int n_head = 12;
-    int n_embd = 192;
+    // Hyperparameters must match training
+    int block_size = 256;
+    int n_layer = 6;
+    int n_head = 6;
+    int n_embd = 384;
     float dropout_p = 0.1f;
-    int batch_size = 8;
+    int batch_size = 16;
     int seq_len = block_size;
 
     // Build tokenizer on rank 0 and broadcast to others
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, rank == 0 ? "dummy_data.txt" : NULL);
+    tokenizer_init(&tokenizer, rank == 0 ? "../data/tinyshakespeare.txt" : NULL);
     int tokenizer_ok = 1;
     if (rank == 0) {
         if (!tokenizer_extract(&tokenizer)) tokenizer_ok = 0;
         if (tokenizer_ok && !tokenizer_encode(&tokenizer)) tokenizer_ok = 0;
         if (tokenizer_ok) {
-            size_t min_tokens = (size_t)batch_size * seq_len * (size_t)world_size + 1;
+            size_t min_tokens = (size_t)batch_size * seq_len + 1;
             tokenizer_pad_to(&tokenizer, min_tokens);
         }
     }

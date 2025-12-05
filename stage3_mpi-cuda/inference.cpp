@@ -158,24 +158,24 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     // Hyperparameters must match training
-    int block_size = 48;
-    int n_layer = 8;
-    int n_head = 12;
-    int n_embd = 192;
+    int block_size = 256;
+    int n_layer = 6;
+    int n_head = 6;
+    int n_embd = 384;
     float dropout_p = 0.1f;
-    int batch_size = 8;
+    int batch_size = 16;
     int seq_len = block_size;
 
     // Build tokenizer locally
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "dummy_data.txt");
+    tokenizer_init(&tokenizer, "../data/tinyshakespeare.txt");
     if (!tokenizer_extract(&tokenizer) || !tokenizer_encode(&tokenizer)) {
         printf("Failed to build tokenizer.\n");
         tokenizer_free(&tokenizer);
         if (mpi_initialized) MPI_Finalize();
         return 1;
     }
-    size_t min_tokens = (size_t)batch_size * seq_len * (size_t)world_size + 1;
+    size_t min_tokens = (size_t)batch_size * seq_len + 1;
     tokenizer_pad_to(&tokenizer, min_tokens);
 
     int vocab_size = tokenizer_vocab_size(&tokenizer);

@@ -3,17 +3,18 @@
 ################################################################################
 
 # CUDA toolchain configuration (align with stage2 CUDA setup)
-CUDA_PATH      ?= /usr/local/cuda-12.8
+CUDA_PATH      ?= /usr/local/cuda
 MPI_CXX        ?= mpicxx
-HOST_COMPILER  ?= /usr/bin/g++-14
+# Keep nvcc's host compiler aligned with the MPI wrapper; fall back to g++
+HOST_COMPILER  ?= $(shell ( $(MPI_CXX) -show 2>/dev/null || echo g++ ) | awk '{print $$1}')
+
 
 # GPU architectures to target (override as needed)
 SMS            ?= 50 52 61
 
-# MPI include/link flags (so we can use a specific host compiler)
-MPI_CXXFLAGS   := $(shell $(MPI_CXX) --showme:compile)
-# Keep MPI link flags simple to avoid nvcc choking on -Wl, options
-MPI_LDFLAGS    := -L/usr/lib64/openmpi/lib -lmpi
+# MPI include/link flags pulled from a simple -show
+MPI_CXXFLAGS   := $(shell ( $(MPI_CXX) -show 2>/dev/null || echo "" ) | tr ' ' '\n' | grep -E '^-I|^-D|^-pthread' | tr '\n' ' ')
+MPI_LDFLAGS    := $(shell ( $(MPI_CXX) -show 2>/dev/null || echo "" ) | tr ' ' '\n' | grep -E '^-L|^-l' | tr '\n' ' ')
 
 # NVCC flags
 NVCC           := $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)

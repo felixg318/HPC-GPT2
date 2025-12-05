@@ -3,8 +3,8 @@
 ################################################################################
 
 # ---- Overrides ----
-CUDA_PATH      ?= /usr/local/cuda-12.8
-HOST_COMPILER  := /usr/bin/g++-14
+CUDA_PATH      ?= /usr/local/cuda
+HOST_COMPILER  ?= /usr/bin/g++-14
 
 # GPU architectures (Quadro M1200 spans Maxwell/Pascal)
 SMS            ?= 50 52 61
@@ -24,7 +24,16 @@ HOST_ARCH   := $(shell uname -m)
 TARGET_ARCH ?= $(HOST_ARCH)
 TARGET_SIZE := $(shell getconf LONG_BIT)
 
-NVCC        := $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)
+ifeq ($(origin CXX),default)
+override CXX :=
+endif
+
+NVCC        := $(CUDA_PATH)/bin/nvcc
+ifneq ($(strip $(CXX)),)
+NVCC        += -ccbin $(CXX)
+else ifneq ($(strip $(HOST_COMPILER)),)
+NVCC        += -ccbin $(HOST_COMPILER)
+endif
 
 NVCCFLAGS   := -m$(TARGET_SIZE)
 CCFLAGS     := -O2 -std=c++17
@@ -68,3 +77,5 @@ inference: inference.cpp cuda_kernels.o
 
 clean:
 	rm -f $(TARGETS) cuda_kernels.o
+
+clobber: clean

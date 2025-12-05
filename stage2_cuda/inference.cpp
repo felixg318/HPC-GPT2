@@ -85,17 +85,17 @@ int main(int argc, char** argv) {
     }
 
     // Hyperparameters must match training
-    int block_size = 48;
-    int n_layer = 8;
-    int n_head = 12;
-    int n_embd = 192;
+    int block_size = 256;
+    int n_layer = 6;
+    int n_head = 6;
+    int n_embd = 384;
     float dropout_p = 0.1f;
-    int batch_size = 4;
+    int batch_size = 16;
     int seq_len = block_size;
 
     // Build tokenizer locally (only rank 0 does work)
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "dummy_data.txt");
+    tokenizer_init(&tokenizer, "../data/tinyshakespeare.txt");
     if (!tokenizer_extract(&tokenizer) || !tokenizer_encode(&tokenizer)) {
         if (rank == 0) printf("Failed to build tokenizer.\n");
         tokenizer_free(&tokenizer);
@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
 #endif
         return 1;
     }
-    size_t min_tokens = (size_t)batch_size * seq_len * (size_t)world_size + 1;
+    size_t min_tokens = (size_t)batch_size * seq_len + 1;
     tokenizer_pad_to(&tokenizer, min_tokens);
 
     int vocab_size = tokenizer_vocab_size(&tokenizer);
