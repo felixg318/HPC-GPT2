@@ -57,34 +57,43 @@ static inline int load_weights(const char* path, const TensorPtrArray* params) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
 
+    int ok = 1;
     FILE* f = NULL;
     if (rank == 0) {
         f = fopen(path, "rb");
         if (f == NULL) {
             printf("load_weights: failed to open %s\n", path);
-            return 0;
+            ok = 0;
         }
+    }
+    MPI_Bcast(&ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    if (!ok) {
+        if (rank == 0 && f != NULL) fclose(f);
+        return 0;
     }
 
     int32_t count = 0;
     if (rank == 0) {
-        // printf("Rank %d: Reading count\n", rank);
         if (fread(&count, sizeof(int32_t), 1, f) != 1) {
             printf("load_weights: failed to read count\n");
-            fclose(f);
-            return 0;
+            ok = 0;
         }
     }
-    // printf("Rank %d: Bcasting count\n", rank);
     MPI_Bcast(&count, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    MPI_Barrier(MPI_COMM_WORLD);
-    // printf("Rank %d: Bcast count done\n", rank);
+    MPI_Bcast(&ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    if (!ok) {
+        if (rank == 0 && f != NULL) fclose(f);
+        return 0;
+    }
 
     if (count != params->count) {
         if (rank == 0) {
             printf("load_weights: tensor count mismatch: file=%d, expected=%d\n", count, params->count);
-            if (f != NULL) fclose(f);
         }
+        ok = 0;
+    }
+    MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+    if (!ok) {
         return 0;
     }
 
@@ -96,62 +105,59 @@ static inline int load_weights(const char* path, const TensorPtrArray* params) {
         float* file_tensor = NULL;
 
         if (rank == 0) {
-             // printf("Rank %d, tensor %d: Reading ndim\n", rank, i);
             if (fread(&ndim_file, sizeof(int32_t), 1, f) != 1) {
                 printf("load_weights: failed to read ndim for tensor %d\n", i);
-                fclose(f); return 0;
+                ok = 0;
             }
         }
-        // printf("Rank %d, tensor %d: Bcasting ndim\n", rank, i);
         MPI_Bcast(&ndim_file, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Barrier(MPI_COMM_WORLD);
-        // printf("Rank %d, tensor %d: Bcast ndim done\n", rank, i);
-
+        MPI_Bcast(&ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        if (!ok) break;
 
         if (ndim_file > TENSOR_MAX_DIMS) {
             if (rank == 0) printf("load_weights: ndim too large (%d) for tensor %d\n", ndim_file, i);
-            if (rank == 0 && f != NULL) fclose(f);
-            return 0;
+            ok = 0;
         }
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) break;
 
         if (rank == 0) {
-            // printf("Rank %d, tensor %d: Reading shape\n", rank, i);
             if (fread(shape_file, sizeof(int32_t), ndim_file, f) != (size_t)ndim_file) {
                 printf("load_weights: failed to read shape for tensor %d\n", i);
-                fclose(f); return 0;
+                ok = 0;
             }
         }
-        // printf("Rank %d, tensor %d: Bcasting shape\n", rank, i);
         MPI_Bcast(shape_file, TENSOR_MAX_DIMS, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Barrier(MPI_COMM_WORLD);
-        // printf("Rank %d, tensor %d: Bcast shape done\n", rank, i);
+        MPI_Bcast(&ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        if (!ok) break;
         
         if (rank == 0) {
-            // printf("Rank %d, tensor %d: Reading numel\n", rank, i);
             if (fread(&numel_file, sizeof(int32_t), 1, f) != 1) {
                 printf("load_weights: failed to read numel for tensor %d\n", i);
-                fclose(f); return 0;
+                ok = 0;
             }
         }
-        // printf("Rank %d, tensor %d: Bcasting numel\n", rank, i);
         MPI_Bcast(&numel_file, 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Barrier(MPI_COMM_WORLD);
-        // printf("Rank %d, tensor %d: Bcast numel done, numel_file=%d\n", rank, i, numel_file);
+        MPI_Bcast(&ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        if (!ok) break;
         
         file_tensor = (float*)malloc(numel_file * sizeof(float));
-        if (rank == 0) {
-            // printf("Rank %d, tensor %d: Reading data\n", rank, i);
+        if (file_tensor == NULL) {
+            if (rank == 0) printf("load_weights: failed to allocate buffer for tensor %d\n", i);
+            ok = 0;
+        } else if (rank == 0) {
             if (fread(file_tensor, sizeof(float), numel_file, f) != (size_t)numel_file) {
                  printf("load_weights: failed to read data for tensor %d\n", i);
-                 fclose(f); free(file_tensor); return 0;
+                 ok = 0;
             }
         }
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) {
+            free(file_tensor);
+            break;
+        }
         
-        // printf("Rank %d, tensor %d: Bcasting data\n", rank, i);
         MPI_Bcast(file_tensor, numel_file, MPI_FLOAT, 0, MPI_COMM_WORLD);
-        MPI_Barrier(MPI_COMM_WORLD);
-        // printf("Rank %d, tensor %d: Bcast data done\n", rank, i);
-
 
         int shape_mismatch = 0;
         if (t->ndim != ndim_file) {
@@ -187,18 +193,18 @@ static inline int load_weights(const char* path, const TensorPtrArray* params) {
                 memcpy(t->data, file_tensor + offset, elements_per_rank * sizeof(float));
             } else {
                  if(rank == 0) printf("load_weights: unhandled partitioned tensor %d\n", i);
-                 free(file_tensor);
-                 if (rank == 0 && f != NULL) fclose(f);
-                 return 0;
+                 ok = 0;
             }
         } else {
             memcpy(t->data, file_tensor, numel_file * sizeof(float));
         }
         free(file_tensor);
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) break;
     }
     
     if (rank == 0 && f != NULL) {
         fclose(f);
     }
-    return 1;
+    return ok;
 }

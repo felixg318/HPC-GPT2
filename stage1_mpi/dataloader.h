@@ -81,11 +81,23 @@ static inline int dataloader_broadcast(DataLoader* dl, int root_rank) {
         dl->current_pos = 0;
     }
 
+    int ok = 1;
     if (num_tokens > 0) {
         if (dl->rank != root_rank || dl->tokens == NULL) {
             int* buf = (int*)malloc(num_tokens * sizeof(int));
-            if (buf == NULL) return 0;
-            dl->tokens = buf;
+            if (buf == NULL) {
+                ok = 0;
+            } else {
+                dl->tokens = buf;
+            }
+        }
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) {
+            if (dl->rank != root_rank && dl->tokens != NULL) {
+                free(dl->tokens);
+                dl->tokens = NULL;
+            }
+            return 0;
         }
         MPI_Bcast(dl->tokens, num_tokens, MPI_INT, root_rank, MPI_COMM_WORLD);
     }

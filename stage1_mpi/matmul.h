@@ -4,7 +4,6 @@
 #pragma once
 
 #include "tensor.h"
-#include <mpi.h>
 
 static int g_matmul_rank = 0;
 static int g_matmul_world = 1;
@@ -23,11 +22,7 @@ typedef struct {
 } MatmulContext;
 
 static inline void matmul_maybe_allreduce(Tensor* out) {
-    if (out == NULL || out->data == NULL) return;
-    if (g_matmul_reduce_outputs && g_matmul_world > 1) {
-        int elems = tensor_numel(out);
-        MPI_Allreduce(MPI_IN_PLACE, out->data, elems, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    }
+    (void)out;
 }
 
 // Backward function for matrix multiplication

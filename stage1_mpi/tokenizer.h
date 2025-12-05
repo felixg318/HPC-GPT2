@@ -317,42 +317,56 @@ static inline int tokenizer_broadcast(Tokenizer* tok, int rank) {
 
     // Broadcast vocab lengths and data
     int* lengths = NULL;
-    if (rank == 0) {
-        lengths = (int*)malloc(vocab_size * sizeof(int));
-        if (lengths == NULL) return 0;
-        for (int i = 0; i < vocab_size; ++i) {
-            lengths[i] = (int)strlen(tok->vocab[i]) + 1;  // include null terminator
-        }
-    }
+    char* flat = NULL;
     if (vocab_size > 0) {
-        if (rank != 0) {
+        if (rank == 0) {
             lengths = (int*)malloc(vocab_size * sizeof(int));
-            if (lengths == NULL) return 0;
+            if (lengths == NULL) {
+                ok = 0;
+            } else {
+                for (int i = 0; i < vocab_size; ++i) {
+                    lengths[i] = (int)strlen(tok->vocab[i]) + 1;  // include null terminator
+                }
+            }
+        } else {
+            lengths = (int*)malloc(vocab_size * sizeof(int));
+            if (lengths == NULL) {
+                ok = 0;
+            }
+        }
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) {
+            if (lengths != NULL) free(lengths);
+            return 0;
         }
         MPI_Bcast(lengths, vocab_size, MPI_INT, 0, MPI_COMM_WORLD);
 
         int total_chars = 0;
         for (int i = 0; i < vocab_size; ++i) total_chars += lengths[i];
 
-        char* flat = NULL;
         if (rank == 0) {
             flat = (char*)malloc(total_chars * sizeof(char));
             if (flat == NULL) {
-                free(lengths);
-                return 0;
-            }
-            int offset = 0;
-            for (int i = 0; i < vocab_size; ++i) {
-                int len = lengths[i];
-                memcpy(flat + offset, tok->vocab[i], len);
-                offset += len;
+                ok = 0;
+            } else {
+                int offset = 0;
+                for (int i = 0; i < vocab_size; ++i) {
+                    int len = lengths[i];
+                    memcpy(flat + offset, tok->vocab[i], len);
+                    offset += len;
+                }
             }
         } else {
             flat = (char*)malloc(total_chars * sizeof(char));
             if (flat == NULL) {
-                free(lengths);
-                return 0;
+                ok = 0;
             }
+        }
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) {
+            if (flat != NULL) free(flat);
+            if (lengths != NULL) free(lengths);
+            return 0;
         }
 
         MPI_Bcast(flat, total_chars, MPI_CHAR, 0, MPI_COMM_WORLD);
@@ -378,6 +392,23 @@ static inline int tokenizer_broadcast(Tokenizer* tok, int rank) {
                 tok->vocab_capacity = vocab_size;
             }
         }
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) {
+            if (rank != 0 && tok->vocab != NULL) {
+                for (int i = 0; i < vocab_size; ++i) {
+                    if (tok->vocab[i] != NULL) {
+                        free(tok->vocab[i]);
+                    }
+                }
+                free(tok->vocab);
+                tok->vocab = NULL;
+                tok->vocab_size = 0;
+                tok->vocab_capacity = 0;
+            }
+            if (flat != NULL) free(flat);
+            if (lengths != NULL) free(lengths);
+            return 0;
+        }
 
         free(flat);
         free(lengths);
@@ -399,9 +430,17 @@ static inline int tokenizer_broadcast(Tokenizer* tok, int rank) {
                 ok = 0;
             }
         }
-        if (ok) {
-            MPI_Bcast(tok->encoded, encoded_count, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Allreduce(MPI_IN_PLACE, &ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+        if (!ok) {
+            if (rank != 0 && tok->encoded != NULL) {
+                free(tok->encoded);
+                tok->encoded = NULL;
+            }
+            tok->encoded_count = 0;
+            tok->encoded_capacity = 0;
+            return 0;
         }
+        MPI_Bcast(tok->encoded, encoded_count, MPI_INT, 0, MPI_COMM_WORLD);
     }
 
     tok->pad_id = pad_id;
