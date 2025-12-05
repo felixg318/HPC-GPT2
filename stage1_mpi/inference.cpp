@@ -11,6 +11,19 @@
 #include "autograd.h"
 #include "dataloader.h"
 
+static inline int all_ranks_ok(int local_ok) {
+    int global_ok = local_ok;
+    MPI_Allreduce(MPI_IN_PLACE, &global_ok, 1, MPI_INT, MPI_MIN, MPI_COMM_WORLD);
+    return global_ok;
+}
+
+static inline void abort_all(const char* msg, int rank) {
+    if (rank == 0 && msg != NULL) {
+        printf("%s\n", msg);
+    }
+    MPI_Abort(MPI_COMM_WORLD, 1);
+}
+
 static int greedy_select_next_token(const Tensor* logits) {
     if (logits == NULL || logits->ndim != 3) return 0;
     int V = logits->shape[2];
@@ -223,17 +236,14 @@ int main(int argc, char** argv) {
         }
     }
     MPI_Bcast(&tokenizer_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (!tokenizer_ok) {
-        if (rank == 0) printf("Failed to build tokenizer.\n");
+    if (!all_ranks_ok(tokenizer_ok)) {
         tokenizer_free(&tokenizer);
-        MPI_Finalize();
-        return 1;
+        abort_all("Failed to build tokenizer.", rank);
     }
-    if (!tokenizer_broadcast(&tokenizer, rank)) {
-        if (rank == 0) printf("Failed to broadcast tokenizer.\n");
+    int tok_bcast_ok = tokenizer_broadcast(&tokenizer, rank);
+    if (!all_ranks_ok(tok_bcast_ok)) {
         tokenizer_free(&tokenizer);
-        MPI_Finalize();
-        return 1;
+        abort_all("Failed to broadcast tokenizer.", rank);
     }
 
     int vocab_size = tokenizer_vocab_size(&tokenizer);
@@ -247,16 +257,14 @@ int main(int argc, char** argv) {
     gpt_collect_params(&gpt, &param_list);
 
     int load_ok = load_weights(weights_path, &param_list);
-    if (rank == 0 && !load_ok) {
-        printf("Failed to load weights from %s\n", weights_path);
-    }
-    MPI_Bcast(&load_ok, 1, MPI_INT, 0, MPI_COMM_WORLD);
-    if (!load_ok) {
+    if (!all_ranks_ok(load_ok)) {
+        if (rank == 0) {
+            printf("Failed to load weights from %s\n", weights_path);
+        }
         tensor_ptr_array_free(&param_list);
         gpt_free(&gpt);
         tokenizer_free(&tokenizer);
-        MPI_Finalize();
-        return 1;
+        abort_all("Aborting due to failed weight load", rank);
     }
 
     // Broadcast parameters to all ranks

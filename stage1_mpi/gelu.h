@@ -4,15 +4,11 @@
 #pragma once
 
 #include <math.h>   // for tanh, sqrt, powf
-#include <mpi.h>
 #include "tensor.h"
 
-static int g_gelu_rank = 0;
-static int g_gelu_world = 1;
-
 static inline void gelu_set_distributed(int rank, int world_size) {
-    g_gelu_rank = (rank >= 0) ? rank : 0;
-    g_gelu_world = (world_size > 0) ? world_size : 1;
+    (void)rank;
+    (void)world_size;
 }
 
 // Context for the GELU operation
@@ -69,16 +65,10 @@ static inline void gelu_backward(Tensor* t) {
   That is: t->data[i] = gelu_scalar(t->data[i]) for all i.
 */
 static inline void gelu_inplace(Tensor* t) {
-    if (g_gelu_world > 1) {
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
     int n = tensor_numel(t);
     for (int i = 0; i < n; ++i) {
         float x = t->data[i];
         t->data[i] = gelu_scalar(x);
-    }
-    if (g_gelu_world > 1) {
-        MPI_Barrier(MPI_COMM_WORLD);
     }
 }
 
@@ -91,9 +81,6 @@ static inline void gelu_inplace(Tensor* t) {
   This is NOT in-place: x is unchanged, y is new.
 */
 static inline void gelu_tensor(const Tensor* x, Tensor* y) {
-    if (g_gelu_world > 1) {
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
     // Copy shape from x to y
     int shape[ TENSOR_MAX_DIMS ];
     for (int i = 0; i < x->ndim; ++i) {
@@ -106,9 +93,6 @@ static inline void gelu_tensor(const Tensor* x, Tensor* y) {
     for (int i = 0; i < n; ++i) {
         float v = x->data[i];
         y->data[i] = gelu_scalar(v);
-    }
-    if (g_gelu_world > 1) {
-        MPI_Barrier(MPI_COMM_WORLD);
     }
     
     // Create context for autograd
