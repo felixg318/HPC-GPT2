@@ -36,7 +36,7 @@ TARGETS := train_gpt2 inference
 
 .PHONY: all clean
 
-all: train_gpt2
+all: $(TARGETS)
 
 cuda_kernels.o: cuda_kernels.cu cuda_utils.h
 	$(NVCC) $(INCLUDES) $(NVCCFLAGS) $(EXTRA_NVCCFLAGS) $(GENCODE_FLAGS) -c $< -o $@

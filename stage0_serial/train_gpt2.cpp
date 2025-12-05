@@ -73,7 +73,7 @@ int main() {
     tensor_set_seed(RANDOM_SEED);
     // Tokenize training corpus
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "../data/tinyshakespeare.txt");
+    tokenizer_init(&tokenizer, "../data/dummy.txt");
     if (!tokenizer_extract(&tokenizer)) {
         tokenizer_free(&tokenizer);
         return 1;

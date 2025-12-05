@@ -127,8 +127,16 @@ static void distributed_generate_text(GPT* gpt,
             if (new_tokens < 0) new_tokens = 0;
             printf("\nGenerated sample (%d seed tokens + %d new tokens):\n",
                    prompt_len, new_tokens);
-            tokenizer_print_tokens(tokenizer, buffer, produced);
-            printf("\nGeneration time: %.6f seconds\n", gen_ms / 1000.0);
+            printf("Seed tokens:\n");
+            tokenizer_print_tokens(tokenizer, buffer, prompt_len);
+            printf("New tokens:\n");
+            if (new_tokens > 0) {
+                tokenizer_print_tokens(tokenizer, buffer + prompt_len, new_tokens);
+            } else {
+                printf("(none)\n");
+            }
+            printf("\n");
+            printf("Generation time: %.6f seconds\n", gen_ms / 1000.0);
         } else {
             printf("Failed to generate text.\n");
         }
@@ -168,7 +176,7 @@ int main(int argc, char** argv) {
 
     // Build tokenizer locally
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "../data/tinyshakespeare.txt");
+    tokenizer_init(&tokenizer, "../data/dummy.txt");
     if (!tokenizer_extract(&tokenizer) || !tokenizer_encode(&tokenizer)) {
         printf("Failed to build tokenizer.\n");
         tokenizer_free(&tokenizer);

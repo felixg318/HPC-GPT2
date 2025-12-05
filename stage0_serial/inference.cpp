@@ -51,8 +51,15 @@ static void generate_sample_text(GPT* gpt,
         }
     }
 
-    printf("\nGenerated text:\n");
-    tokenizer_print_tokens(tokenizer, context, current_len);
+    printf("\nGenerated sample (%d seed tokens + %d new tokens):\n", seed_len, current_len - seed_len);
+    printf("Seed tokens:\n");
+    tokenizer_print_tokens(tokenizer, context, seed_len);
+    printf("New tokens:\n");
+    if (current_len > seed_len) {
+        tokenizer_print_tokens(tokenizer, context + seed_len, current_len - seed_len);
+    } else {
+        printf("(none)\n");
+    }
     printf("\n");
     free(context);
 }
@@ -73,7 +80,7 @@ int main(int argc, char** argv) {
 
     // Tokenizer
     Tokenizer tokenizer;
-    tokenizer_init(&tokenizer, "../data/tinyshakespeare.txt");
+    tokenizer_init(&tokenizer, "../data/dummy.txt");
     if (!tokenizer_extract(&tokenizer)) {
         printf("Failed to extract tokens from corpus.\n");
         tokenizer_free(&tokenizer);
