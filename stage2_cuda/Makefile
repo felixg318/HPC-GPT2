@@ -4,7 +4,7 @@
 
 # ---- Overrides ----
 CUDA_PATH      ?= /usr/local/cuda
-HOST_COMPILER  ?= /usr/bin/g++-14
+HOST_COMPILER  ?= /usr/bin/g++
 
 # GPU architectures (Quadro M1200 spans Maxwell/Pascal)
 SMS            ?= 50 52 61
