@@ -1,0 +1,8 @@
+
+Generated sample (256 seed tokens + 30 new tokens):
+Seed tokens:
+In the beginning the codebase was small but it grew rapidly. Over countless late nights we wrote tensors, layers, and optimizers. The dummy data repeated the same lines until we decided to expand it. Here is a longer narrative meant to simulate a larger corpus of text for training experiments. With more lines and more variety, the gradients have something mildly interesting to chew on. You can sprinkle in references to transformers, attention mechanisms, residual connections, and other key words. Even though this is still toy data, it is intentionally verbose and meandering. Imagine stories about compilers, mathematicians, space travel, recipes, poetry, and philosophy woven together. The important part is that there are many tokens so the dataloader can produce batches of length two hundred fifty six without immediately wrapping around. So we fill this file with an absurdly long paragraph that keeps rambling about neural networks, ancient myths, fictional dialogues, and whimsical anecdotes about debugging. We mention dragons of entropy, gardens of for loops, and seas made of JSON. The more random sentences we add the closer this feels to a corpus even if it is just generated prose. Eventually the network will see enough variety to at least have something to overfit to. And so the tale continues, line after line, enumerating dreams of AI researchers, data scientists, and engineers
+New tokens:
+tinkering with an absurdly long paragraph that there are many tokens so the closer this feels to a corpus even if it is just generated prose. The dummy data
+
+Generation time: 8.005000 seconds
