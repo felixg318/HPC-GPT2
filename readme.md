@@ -1,3 +1,5 @@
+After running `make` on the parent directory,
+
 Run Serial:
 cd stage0_serial
 
