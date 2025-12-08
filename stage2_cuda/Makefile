@@ -4,7 +4,8 @@
 
 # ---- Overrides ----
 CUDA_PATH      ?= /usr/local/cuda
-HOST_COMPILER  ?= /usr/bin/g++
+# Pin host compiler to a CUDA-supported version
+HOST_COMPILER  ?= /usr/bin/g++-14
 
 # GPU architectures (Quadro M1200 spans Maxwell/Pascal)
 SMS            ?= 50 52 61
@@ -35,7 +36,7 @@ else ifneq ($(strip $(HOST_COMPILER)),)
 NVCC        += -ccbin $(HOST_COMPILER)
 endif
 
-NVCCFLAGS   := -m$(TARGET_SIZE)
+NVCCFLAGS   := -m$(TARGET_SIZE) -allow-unsupported-compiler
 CCFLAGS     := -O2 -std=c++17
 LDFLAGS     :=
 

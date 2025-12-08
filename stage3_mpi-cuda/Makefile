@@ -5,8 +5,8 @@
 # CUDA toolchain configuration (align with stage2 CUDA setup)
 CUDA_PATH      ?= /usr/local/cuda
 MPI_CXX        ?= mpicxx
-# Keep nvcc's host compiler aligned with the MPI wrapper; fall back to g++
-HOST_COMPILER  ?= $(shell ( $(MPI_CXX) -show 2>/dev/null || echo g++ ) | awk '{print $$1}')
+# Use a CUDA-supported host compiler; override if your MPI wrapper points elsewhere
+HOST_COMPILER  ?= /usr/bin/g++-14
 
 
 # GPU architectures to target (override as needed)
@@ -18,7 +18,7 @@ MPI_LDFLAGS    := $(shell ( $(MPI_CXX) -show 2>/dev/null || echo "" ) | tr ' ' '
 
 # NVCC flags
 NVCC           := $(CUDA_PATH)/bin/nvcc -ccbin $(HOST_COMPILER)
-NVCCFLAGS      := -O2 -std=c++17 --threads 0 -Xcompiler -fPIE
+NVCCFLAGS      := -O2 -std=c++17 --threads 0 -Xcompiler -fPIE -allow-unsupported-compiler
 EXTRA_NVCCFLAGS += -DUSE_CUDA -DUSE_MPI -Wno-deprecated-gpu-targets
 
 # Build gencode flags from SMS list
